@@ -6,15 +6,26 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:cap": "cross-env VITE_CAPACITOR=1 tsc --noEmit && cross-env VITE_CAPACITOR=1 vite build && cap sync",
     "preview": "vite preview",
+    "cap:open:android": "cap open android",
+    "cap:open:ios": "cap open ios",
     "test:smoke": "playwright test tests/dashboard-smoke.spec.ts tests/render-firewall.spec.ts"
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.0",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/cli": "^8.3.0",
+    "@capacitor/core": "^8.3.0",
+    "@capacitor/ios": "^8.3.0",
+    "@capacitor/splash-screen": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.2",
     "@supabase/supabase-js": "^2.57.4",
     "groq-sdk": "^1.1.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.9.1"
+    "react-router-dom": "^7.9.1",
+    "string.prototype.trim": "^1.2.10"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
@@ -22,9 +33,11 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.21",
+    "cross-env": "^10.1.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.7.2",
-    "vite": "^6.0.3"
+    "vite": "^6.0.3",
+    "vite-plugin-pwa": "^1.2.0"
   }
 }

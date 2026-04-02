@@ -7,3 +7,14 @@ dist
 .DS_Store
 test-results
 playwright-report
+
+# Capacitor native
+android/.gradle
+android/app/build
+android/build
+android/local.properties
+android/captures
+android/*.iml
+ios/App/build
+ios/App/Pods
+ios/DerivedData

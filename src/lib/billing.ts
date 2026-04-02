@@ -150,7 +150,9 @@ export const openProCheckout = () => {
   }
   window.localStorage.setItem(PENDING_UPGRADE_FLAG, "1");
   window.localStorage.setItem(PENDING_UPGRADE_AT, String(Date.now()));
-  const returnUrl = "http://localhost:5176/dashboard";
+  const base =
+    (env.publicAppUrl ?? window.location.origin).replace(/\/$/, "") || window.location.origin;
+  const returnUrl = `${base}/dashboard`;
   const checkoutUrl = (() => {
     try {
       const parsed = new URL(url);

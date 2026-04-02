@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Prompt Fix</string>
+    <string name="title_activity_main">Prompt Fix</string>
+    <string name="package_name">com.promptfix.app</string>
+    <string name="custom_url_scheme">com.promptfix.app</string>
+</resources>
