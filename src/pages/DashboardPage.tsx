@@ -6,7 +6,8 @@ import { usePlanUsage } from "../hooks/usePlanUsage";
 import { usePullToRefresh } from "../hooks/usePullToRefresh";
 import { openProCheckout } from "../lib/billing";
 import { safeText } from "../lib/renderSafety";
-import type { PromptSession } from "../types/database";
+import type { CodeSession, PromptSession } from "../types/database";
+import type { RecentSessionItem } from "../hooks/useDashboardData";
 
 const STREAK_MILESTONES = new Set([3, 7, 14, 30, 60, 100]);
 
@@ -68,8 +69,8 @@ function getPlatformStyle(p: string | null) {
 const MODE_STYLES: Record<string, { bg: string; text: string }> = {
   improve: { bg: "bg-blue-100", text: "text-blue-700" },
   Improve: { bg: "bg-blue-100", text: "text-blue-700" },
-  debug: { bg: "bg-rose-100", text: "text-rose-700" },
-  Debug: { bg: "bg-rose-100", text: "text-rose-700" },
+  fix: { bg: "bg-orange-100", text: "text-orange-700" },
+  Fix: { bg: "bg-orange-100", text: "text-orange-700" },
 };
 
 function getModeStyle(mode: string | null) {
@@ -385,7 +386,50 @@ function QuickActionSkeleton() {
 
 // ─── Session row ──────────────────────────────────────────────────────────────
 
-function RecentSessionRow({ session }: { session: PromptSession }) {
+function RecentSessionRow({ item }: { item: RecentSessionItem }) {
+  if (item.kind === "fix") {
+    const session = item.session as CodeSession;
+    const ps = getPlatformStyle(session.platform);
+    const ms = getModeStyle("fix");
+    const safeTitleBase =
+      safeText(session.title) || safeText(session.original_code) || "Code fix session";
+    const displayTitle =
+      safeTitleBase.length > 65 ? `${safeTitleBase.slice(0, 65)}…` : safeTitleBase;
+    return (
+      <Link
+        to={`/sessions/${session.id}`}
+        className="group flex items-center gap-4 rounded-2xl border border-[#E5E5EA] p-4 no-underline transition-all duration-200 hover:-translate-y-px hover:border-[#D1D1D6] hover:shadow-[0_4px_24px_rgba(28,28,30,0.08)]"
+        style={{
+          background: "rgba(255,255,255,0.72)",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+        }}
+      >
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[15px] font-medium text-[#1C1C1E]">{displayTitle}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${ms.bg} ${ms.text}`}>
+              Fix
+            </span>
+            {session.platform && (
+              <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${ps.bg} ${ps.text}`}>
+                {session.platform}
+              </span>
+            )}
+            {session.language_detected ? (
+              <span className="rounded-full bg-sky-100 px-2.5 py-0.5 text-[11px] font-semibold text-sky-800">
+                {session.language_detected}
+              </span>
+            ) : null}
+            <span className="text-[12px] text-[#8E8E93]">{timeAgo(session.created_at)}</span>
+          </div>
+        </div>
+        <ChevronRightSvg className="h-4 w-4 shrink-0 text-[#C7C7CC] transition-colors group-hover:text-[#8E8E93]" />
+      </Link>
+    );
+  }
+
+  const session = item.session as PromptSession;
   const ps = getPlatformStyle(session.platform);
   const modeLabel = session.mode ?? session.prompt_type;
   const ms = getModeStyle(modeLabel ?? null);
@@ -540,6 +584,7 @@ export const DashboardPage = () => {
         </div>
       ) : null}
 
+      <div className="app-section-reveal space-y-6">
       {/* ── Hero ──────────────────────────────────────────────── */}
       {loading ? (
         <HeroSkeleton />
@@ -566,7 +611,7 @@ export const DashboardPage = () => {
             <div>
               <p className="text-sm font-semibold text-blue-800">Free plan</p>
               <p className="text-sm text-blue-700">
-                {usageLoading ? "Checking usage..." : `${remainingCount} prompts/debug sessions left this month.`}
+                {usageLoading ? "Checking usage..." : `${remainingCount} Improve / Fix sessions left this month.`}
               </p>
             </div>
             <button
@@ -587,16 +632,17 @@ export const DashboardPage = () => {
       ) : (
         <article className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
           <p className="text-sm font-semibold text-emerald-800">Pro plan active</p>
-          <p className="text-sm text-emerald-700">Unlimited prompt improvements and debug sessions.</p>
+          <p className="text-sm text-emerald-700">Unlimited Improve and Fix My Code sessions.</p>
         </article>
       )}
+      </div>
 
       {/* ── Stats row ──────────────────────────────────────────
            Mobile  → flex + horizontal scroll
            Tablet  → 2×2 grid
            Desktop → 4-col grid
       ──────────────────────────────────────────────────────── */}
-      <div className="flex gap-3 overflow-x-auto pb-1 snap-x snap-mandatory md:grid md:max-lg:grid-cols-5 md:gap-4 md:overflow-x-visible md:pb-0 md:snap-none lg:grid-cols-5">
+      <div className="app-section-reveal flex gap-3 overflow-x-auto pb-1 snap-x snap-mandatory md:grid md:max-lg:grid-cols-5 md:gap-4 md:overflow-x-visible md:pb-0 md:snap-none lg:grid-cols-5">
         {loading ? (
           [0, 1, 2, 3, 4].map((i) => <StatCardSkeleton key={i} />)
         ) : (
@@ -667,7 +713,7 @@ export const DashboardPage = () => {
            Mobile  → stacked
            Tablet+ → side by side
       ──────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="app-section-reveal grid grid-cols-1 gap-4 md:grid-cols-2">
         {loading ? (
           <>
             <QuickActionSkeleton />
@@ -684,9 +730,9 @@ export const DashboardPage = () => {
             />
             <QuickActionCard
               imageUrl="https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=800"
-              title="Debug My Code"
-              description="Find what went wrong and fix it"
-              buttonLabel="Start Debugging"
+              title="Fix My Code"
+              description="Paste broken code, get fixes and alternatives"
+              buttonLabel="Fix My Code"
               to="/debug"
             />
           </>
@@ -694,7 +740,7 @@ export const DashboardPage = () => {
       </div>
 
       {/* ── Recent Sessions ───────────────────────────────────── */}
-      <div>
+      <div className="app-section-reveal">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-[18px] font-semibold text-[#1C1C1E]">Recent Sessions</h2>
           {!loading && recentSessions.length > 0 && (
@@ -717,8 +763,8 @@ export const DashboardPage = () => {
           <EmptyState />
         ) : (
           <div className="space-y-3">
-            {recentSessions.map((s) => (
-              <RecentSessionRow key={s.id} session={s} />
+            {recentSessions.map((item) => (
+              <RecentSessionRow key={`${item.kind}-${item.session.id}`} item={item} />
             ))}
           </div>
         )}

@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { BottomSheet } from "../components/BottomSheet";
 import { useAuth } from "../hooks/useAuth";
 import { usePullToRefresh } from "../hooks/usePullToRefresh";
 import { safeText } from "../lib/renderSafety";
 import { supabase } from "../lib/supabase";
-import type { PromptSession } from "../types/database";
+import type { CodeSession, PromptSession } from "../types/database";
 
 const PAGE_SIZE = 20;
+const TABLE_FETCH_LIMIT = 150;
+
 const FILTERS = [
   { id: "all", label: "All" },
   { id: "improve", label: "Improve Sessions" },
-  { id: "debug", label: "Debug Sessions" },
+  { id: "fix", label: "Fix Sessions" },
   { id: "platform:Lovable", label: "Lovable" },
   { id: "platform:Cursor", label: "Cursor" },
   { id: "platform:Replit", label: "Replit" },
@@ -25,12 +28,12 @@ const SORT_OPTIONS: Array<{ id: SortKey; label: string }> = [
   { id: "newest", label: "Newest First" },
   { id: "oldest", label: "Oldest First" },
   { id: "alternatives", label: "Most Alternatives" },
-  { id: "clarity", label: "Highest Clarity Gain" },
+  { id: "clarity", label: "Highest Score Gain" },
 ];
 
-interface HistorySession extends PromptSession {
-  debug_root_cause: string | null;
-}
+type UnifiedHistoryItem =
+  | { kind: "improve"; created_at: string; session: PromptSession }
+  | { kind: "fix"; created_at: string; session: CodeSession };
 
 const timeAgo = (iso: string) => {
   const ms = Date.now() - new Date(iso).getTime();
@@ -61,48 +64,52 @@ const platformClass = (platform: string | null) => {
   }
 };
 
-const rootCauseClass = (cause: string | null) => {
-  switch (cause) {
-    case "Missing Context":
-      return "bg-rose-100 text-rose-700";
-    case "Ambiguous Requirements":
-      return "bg-orange-100 text-orange-700";
-    case "Platform Limitation":
-      return "bg-blue-100 text-blue-700";
-    case "Scope Creep":
-      return "bg-yellow-100 text-yellow-700";
-    case "Tech Mismatch":
-      return "bg-purple-100 text-purple-700";
-    case "Missing Dependency":
-      return "bg-pink-100 text-pink-700";
-    case "Logic Error":
-      return "bg-red-100 text-red-700";
-    case "Style Conflict":
-      return "bg-teal-100 text-teal-700";
-    default:
-      return "bg-[#F2F2F7] text-[#636366]";
-  }
-};
+const languageClass = () => "bg-sky-100 text-sky-800";
 
-const clamp = (value: number) => Math.max(0, Math.min(100, value));
-const toScorePercent = (value: number | null | undefined) => {
-  if (value == null || !Number.isFinite(value)) return 0;
-  if (value <= 10) return clamp(Math.round(value * 10));
-  return clamp(Math.round(value));
-};
+function altCount(item: UnifiedHistoryItem): number {
+  if (item.kind === "improve") {
+    const s = item.session;
+    return [s.alternative_one, s.alternative_two, s.alternative_three].filter(Boolean).length;
+  }
+  const s = item.session;
+  return [s.alternative_one_code, s.alternative_two_code, s.alternative_three_code].filter(Boolean).length;
+}
+
+function scoreGain(item: UnifiedHistoryItem): number {
+  const s = item.session;
+  const ob = s.overall_score_before ?? 0;
+  const oa = s.overall_score_after ?? 0;
+  return oa - ob;
+}
+
+function sortUnified(list: UnifiedHistoryItem[], sort: SortKey): UnifiedHistoryItem[] {
+  const next = [...list];
+  next.sort((x, y) => {
+    if (sort === "newest") return y.created_at.localeCompare(x.created_at);
+    if (sort === "oldest") return x.created_at.localeCompare(y.created_at);
+    if (sort === "alternatives") {
+      const d = altCount(y) - altCount(x);
+      if (d !== 0) return d;
+      return y.created_at.localeCompare(x.created_at);
+    }
+    const g = scoreGain(y) - scoreGain(x);
+    if (g !== 0) return g;
+    return y.created_at.localeCompare(x.created_at);
+  });
+  return next;
+}
+
+function formatScorePair(before: number | null | undefined, after: number | null | undefined): string | null {
+  if (before == null && after == null) return null;
+  const b = Number(before ?? 0);
+  const a = Number(after ?? 0);
+  return `${b.toFixed(1)} → ${a.toFixed(1)}`;
+}
 
 function SearchIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.8} stroke="currentColor" className="h-4 w-4">
       <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z" />
-    </svg>
-  );
-}
-
-function ChevronDownIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" strokeWidth={2} stroke="currentColor" className="h-4 w-4">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
     </svg>
   );
 }
@@ -132,152 +139,125 @@ export const HistoryPage = () => {
   const [filter, setFilter] = useState<FilterKey>("all");
   const [sort, setSort] = useState<SortKey>("newest");
   const [sortOpen, setSortOpen] = useState(false);
-  const [items, setItems] = useState<HistorySession[]>([]);
+  const [mobileSortOpen, setMobileSortOpen] = useState(false);
+  const [merged, setMerged] = useState<UnifiedHistoryItem[]>([]);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [offset, setOffset] = useState(0);
-  const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [totalCount, setTotalCount] = useState(0);
+
+  const searchText = search.trim().replace(/,/g, " ").replace(/'/g, "''");
 
   const fetchCount = async () => {
     if (!supabase || !user?.id) return;
-    let q = supabase
-      .from("prompt_sessions")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", user.id);
+    const sb = supabase;
 
-    if (filter === "improve") q = q.eq("mode", "improve");
-    if (filter === "debug") q = q.eq("mode", "debug");
-    if (filter.startsWith("platform:")) q = q.eq("platform", filter.replace("platform:", ""));
+    const countPrompts = async () => {
+      let q = sb
+        .from("prompt_sessions")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .or("mode.eq.improve,mode.is.null");
+      if (filter.startsWith("platform:")) q = q.eq("platform", filter.replace("platform:", ""));
+      if (searchText) q = q.or(`title.ilike.%${searchText}%,original_prompt.ilike.%${searchText}%`);
+      const { count, error: e } = await q;
+      if (e) throw e;
+      return count ?? 0;
+    };
 
-    const searchText = search.trim().replace(/,/g, " ").replace(/'/g, "''");
-    if (searchText) {
-      q = q.or(`title.ilike.%${searchText}%,original_prompt.ilike.%${searchText}%`);
+    const countCodes = async () => {
+      let q = sb.from("code_sessions").select("*", { count: "exact", head: true }).eq("user_id", user.id);
+      if (filter.startsWith("platform:")) q = q.eq("platform", filter.replace("platform:", ""));
+      if (searchText) {
+        q = q.or(`title.ilike.%${searchText}%,original_code.ilike.%${searchText}%,error_description.ilike.%${searchText}%`);
+      }
+      const { count, error: e } = await q;
+      if (e) throw e;
+      return count ?? 0;
+    };
+
+    try {
+      if (filter === "improve") {
+        const n = await countPrompts();
+        setTotalCount(n);
+        return;
+      }
+      if (filter === "fix") {
+        const n = await countCodes();
+        setTotalCount(n);
+        return;
+      }
+      const [pn, cn] = await Promise.all([countPrompts(), countCodes()]);
+      setTotalCount(pn + cn);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Count failed");
     }
-
-    const { count, error: countError } = await q;
-    if (countError) {
-      setError(countError.message);
-      return;
-    }
-    setTotalCount(count ?? 0);
   };
 
-  const buildQuery = (currentOffset: number) => {
-    if (!supabase || !user?.id) return null;
-    let q = supabase
-      .from("prompt_sessions")
-      .select("*")
-      .eq("user_id", user.id);
-
-    if (filter === "improve") q = q.eq("mode", "improve");
-    if (filter === "debug") q = q.eq("mode", "debug");
-    if (filter.startsWith("platform:")) q = q.eq("platform", filter.replace("platform:", ""));
-
-    const searchText = search.trim().replace(/,/g, " ").replace(/'/g, "''");
-    if (searchText) {
-      q = q.or(`title.ilike.%${searchText}%,original_prompt.ilike.%${searchText}%`);
-    }
-
-    if (sort === "newest") q = q.order("created_at", { ascending: false });
-    if (sort === "oldest") q = q.order("created_at", { ascending: true });
-    if (sort === "alternatives") {
-      q = q
-        .order("alternative_three", { ascending: false, nullsFirst: false })
-        .order("alternative_two", { ascending: false, nullsFirst: false })
-        .order("alternative_one", { ascending: false, nullsFirst: false })
-        .order("created_at", { ascending: false });
-    }
-    if (sort === "clarity") {
-      q = q
-        .order("overall_score_after", { ascending: false, nullsFirst: false })
-        .order("overall_score_before", { ascending: true, nullsFirst: false })
-        .order("created_at", { ascending: false });
-    }
-
-    return q.range(currentOffset, currentOffset + PAGE_SIZE - 1);
-  };
-
-  const fetchSessions = async (reset = false) => {
+  const loadMerged = async () => {
     if (!supabase || !user?.id) {
       setLoadingInitial(false);
       return;
     }
-    if (!reset && (!hasMore || loadingMore || loadingInitial)) return;
+    setLoadingInitial(true);
+    setError(null);
 
-    if (reset) {
-      setLoadingInitial(true);
-      setLoadingMore(false);
-      setHasMore(true);
-      setError(null);
-    } else {
-      setLoadingMore(true);
-    }
+    try {
+      const unified: UnifiedHistoryItem[] = [];
 
-    const currentOffset = reset ? 0 : offset;
-    const q = buildQuery(currentOffset);
-    if (!q) {
-      setLoadingInitial(false);
-      setLoadingMore(false);
-      return;
-    }
+      const needPrompts = filter === "all" || filter === "improve" || filter.startsWith("platform:");
+      const needCodes = filter === "all" || filter === "fix" || filter.startsWith("platform:");
 
-    const { data, error: queryError } = await q;
-    if (queryError) {
-      setError(queryError.message);
-      setLoadingInitial(false);
-      setLoadingMore(false);
-      return;
-    }
+      const sb = supabase;
 
-    const sessions = (data ?? []) as PromptSession[];
-    const debugIds = sessions
-      .filter((session) => (session.mode ?? "").toLowerCase().includes("debug"))
-      .map((session) => session.id);
-
-    const rootCauseBySessionId: Record<string, string | null> = {};
-    if (debugIds.length) {
-      const { data: debugRows } = await supabase
-        .from("debug_sessions")
-        .select("prompt_session_id, root_cause")
-        .eq("user_id", user.id)
-        .in("prompt_session_id", debugIds);
-      (debugRows ?? []).forEach((row: { prompt_session_id: string | null; root_cause: string | null }) => {
-        if (row.prompt_session_id) {
-          rootCauseBySessionId[row.prompt_session_id] = row.root_cause ?? null;
+      if (needPrompts) {
+        let pq = sb.from("prompt_sessions").select("*").eq("user_id", user.id).or("mode.eq.improve,mode.is.null");
+        if (filter.startsWith("platform:")) {
+          pq = pq.eq("platform", filter.replace("platform:", ""));
         }
-      });
+        if (searchText) {
+          pq = pq.or(`title.ilike.%${searchText}%,original_prompt.ilike.%${searchText}%`);
+        }
+        const { data: prompts, error: pe } = await pq.limit(TABLE_FETCH_LIMIT);
+        if (pe) throw pe;
+        (prompts ?? []).forEach((row: PromptSession) => {
+          unified.push({ kind: "improve", created_at: row.created_at, session: row });
+        });
+      }
+
+      if (needCodes) {
+        let cq = sb.from("code_sessions").select("*").eq("user_id", user.id);
+        if (filter.startsWith("platform:")) {
+          cq = cq.eq("platform", filter.replace("platform:", ""));
+        }
+        if (searchText) {
+          cq = cq.or(`title.ilike.%${searchText}%,original_code.ilike.%${searchText}%,error_description.ilike.%${searchText}%`);
+        }
+        const { data: codes, error: ce } = await cq.limit(TABLE_FETCH_LIMIT);
+        if (ce) throw ce;
+        (codes ?? []).forEach((row: CodeSession) => {
+          unified.push({ kind: "fix", created_at: row.created_at, session: row });
+        });
+      }
+
+      setMerged(sortUnified(unified, sort));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load history");
+      setMerged([]);
+    } finally {
+      setLoadingInitial(false);
     }
-
-    const merged: HistorySession[] = sessions.map((session) => ({
-      ...session,
-      debug_root_cause: rootCauseBySessionId[session.id] ?? null,
-    }));
-
-    setItems((prev) => {
-      const next = reset ? merged : [...prev, ...merged];
-      const byId = new Map<string, HistorySession>();
-      next.forEach((item) => byId.set(item.id, item));
-      return Array.from(byId.values());
-    });
-
-    setOffset(currentOffset + merged.length);
-    setHasMore(merged.length === PAGE_SIZE);
-    setLoadingInitial(false);
-    setLoadingMore(false);
   };
 
   useEffect(() => {
-    setOffset(0);
-    setHasMore(true);
-    void fetchSessions(true);
+    setVisibleCount(PAGE_SIZE);
+    void loadMerged();
     void fetchCount();
   }, [user?.id, filter, sort, search]);
 
-  const { isRefreshing, pullDistance, bind } = usePullToRefresh(async () => {
-    await Promise.all([fetchSessions(true), fetchCount()]);
-  });
+  const visibleItems = merged.slice(0, visibleCount);
+  const hasMore = visibleCount < merged.length;
 
   useEffect(() => {
     const target = loaderRef.current;
@@ -285,27 +265,37 @@ export const HistoryPage = () => {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          void fetchSessions(false);
+          setLoadingMore(true);
+          window.setTimeout(() => {
+            setVisibleCount((v) => v + PAGE_SIZE);
+            setLoadingMore(false);
+          }, 80);
         }
       },
       { rootMargin: "180px 0px" },
     );
     observer.observe(target);
     return () => observer.disconnect();
-  }, [loaderRef.current, hasMore, loadingInitial, loadingMore, offset, filter, sort, search, user?.id]);
+  }, [hasMore, loadingInitial, loadingMore, visibleCount, merged.length]);
+
+  const { isRefreshing, pullDistance, bind } = usePullToRefresh(async () => {
+    setVisibleCount(PAGE_SIZE);
+    await Promise.all([loadMerged(), fetchCount()]);
+  });
 
   useEffect(() => {
-    const onClickOutside = (event: MouseEvent) => {
+    if (!sortOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
       if (sortMenuRef.current && !sortMenuRef.current.contains(event.target as Node)) {
         setSortOpen(false);
       }
     };
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, []);
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [sortOpen]);
 
   return (
-    <section className="space-y-4 pb-12 sm:space-y-5 sm:pb-16" {...bind}>
+    <section className="space-y-5 overflow-x-hidden pb-16" {...bind}>
       {(isRefreshing || pullDistance > 0) ? (
         <div className="flex items-center justify-center">
           <span
@@ -315,62 +305,55 @@ export const HistoryPage = () => {
         </div>
       ) : null}
 
-      <header className="rounded-2xl border border-[#E5E5EA] bg-white/72 p-4 backdrop-blur-xl">
+      <header>
         <div className="flex flex-wrap items-baseline gap-2">
           <h1 className="text-2xl font-semibold text-[#1C1C1E]">History</h1>
           <span className="text-sm text-[#8E8E93]">{totalCount} sessions</span>
         </div>
-        <p className="mt-1 text-sm text-[#636366]">Every prompt session you have run</p>
+        <p className="mt-1 text-sm text-[#636366]">Improve sessions and code fix sessions in one place</p>
       </header>
 
-      <div className="relative z-10 grid gap-3 lg:grid-cols-[1fr_auto]">
-        <div className="rounded-2xl border border-[#E5E5EA] bg-white/72 p-4 backdrop-blur-xl">
-          <div className="relative">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8E8E93]">
-              <SearchIcon />
-            </span>
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search your sessions..."
-              className="w-full rounded-2xl border border-[#D1D1D6] bg-white/85 py-3 pl-10 pr-3 text-sm text-[#1C1C1E] outline-none focus:border-[#3B82F6] focus:shadow-[0_0_0_3px_rgba(59,130,246,0.12)]"
-            />
-          </div>
-          <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1">
-            {FILTERS.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => setFilter(f.id)}
-                className={[
-                  "whitespace-nowrap rounded-full border px-3 py-1.5 text-sm transition",
-                  filter === f.id
-                    ? "border-blue-300 bg-blue-100 text-blue-700"
-                    : "border-[#D1D1D6] bg-white/75 text-[#636366]",
-                ].join(" ")}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
+      <div className="rounded-2xl border border-[#E5E5EA] bg-white/70 p-4 backdrop-blur-xl">
+        <div className="relative">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8E8E93]">
+            <SearchIcon />
+          </span>
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search your sessions..."
+            className="w-full rounded-2xl border border-[#D1D1D6] bg-white/85 py-3 pl-10 pr-3 text-sm text-[#1C1C1E] outline-none focus:border-[#3B82F6] focus:shadow-[0_0_0_3px_rgba(59,130,246,0.12)]"
+          />
         </div>
-
-        <div
-          ref={sortMenuRef}
-          className="relative z-20 rounded-2xl border border-[#E5E5EA] bg-white/72 p-3 backdrop-blur-xl lg:self-start"
-        >
-          <label className="mb-1 block text-xs font-medium text-[#8E8E93]">Sort</label>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {FILTERS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setFilter(f.id)}
+              className={[
+                "rounded-full border px-3 py-1.5 text-sm transition",
+                filter === f.id
+                  ? "border-blue-300 bg-blue-100 text-blue-700"
+                  : "border-[#D1D1D6] bg-white/75 text-[#636366]",
+              ].join(" ")}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-3 hidden justify-end md:flex" ref={sortMenuRef}>
           <div className="relative">
             <button
               type="button"
               onClick={() => setSortOpen((prev) => !prev)}
-              className="flex min-w-[196px] items-center justify-between rounded-full border border-[#D1D1D6] bg-white/85 px-3 py-2 text-sm text-[#1C1C1E] transition hover:bg-white"
+              className="flex min-w-[170px] items-center justify-between rounded-full border border-[#D1D1D6] bg-white/90 px-4 py-2 text-sm text-[#1C1C1E] transition hover:bg-white"
             >
               <span>{SORT_OPTIONS.find((option) => option.id === sort)?.label}</span>
-              <ChevronDownIcon />
+              <span className="ml-2 text-xs text-[#636366]">▼</span>
             </button>
             {sortOpen ? (
-              <div className="absolute left-0 top-[calc(100%+6px)] z-30 w-full overflow-hidden rounded-xl border border-[#D1D1D6] bg-white/95 p-1 shadow-[0_12px_30px_rgba(28,28,30,0.14)] backdrop-blur-xl">
+              <div className="absolute right-0 top-[calc(100%+6px)] z-[120] min-w-[170px] overflow-hidden rounded-xl border border-[#D1D1D6] bg-white p-1 shadow-[0_12px_30px_rgba(28,28,30,0.14)]">
                 {SORT_OPTIONS.map((option) => (
                   <button
                     key={option.id}
@@ -379,12 +362,7 @@ export const HistoryPage = () => {
                       setSort(option.id);
                       setSortOpen(false);
                     }}
-                    className={[
-                      "flex w-full items-center rounded-lg px-3 py-2 text-left text-sm transition",
-                      sort === option.id
-                        ? "bg-blue-100 text-blue-700"
-                        : "text-[#1C1C1E] hover:bg-[#F2F2F7]",
-                    ].join(" ")}
+                    className={`block w-full rounded-lg px-3 py-2 text-left text-sm ${sort === option.id ? "bg-blue-100 text-blue-700" : "text-[#1C1C1E] hover:bg-[#F2F2F7]"}`}
                   >
                     {option.label}
                   </button>
@@ -392,6 +370,15 @@ export const HistoryPage = () => {
               </div>
             ) : null}
           </div>
+        </div>
+        <div className="mt-3 md:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileSortOpen(true)}
+            className="rounded-full border border-[#D1D1D6] bg-white/90 px-4 py-2 text-sm text-[#1C1C1E]"
+          >
+            Sort
+          </button>
         </div>
       </div>
 
@@ -403,7 +390,7 @@ export const HistoryPage = () => {
             <HistorySkeletonCard key={i} />
           ))}
         </div>
-      ) : items.length === 0 ? (
+      ) : visibleItems.length === 0 ? (
         <div
           className="rounded-3xl border border-dashed border-[#D1D1D6] px-8 py-14 text-center"
           style={{ background: "rgba(255,255,255,0.60)", backdropFilter: "blur(12px)" }}
@@ -412,22 +399,27 @@ export const HistoryPage = () => {
             🗂️
           </div>
           <p className="mx-auto max-w-[360px] text-sm text-[#636366]">
-            No sessions yet. Run an Improve or Debug session and it will appear here.
+            No sessions yet. Run Improve or Fix My Code and it will appear here.
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {items.map((session) => {
-            const titleBase = safeText(session.original_prompt) || safeText(session.title) || "Untitled session";
+          {visibleItems.map((item) => {
+            const id = item.session.id;
+            const titleBase =
+              item.kind === "improve"
+                ? safeText(item.session.original_prompt) || safeText(item.session.title)
+                : safeText(item.session.title) || safeText(item.session.original_code);
             const title = titleBase.length > 60 ? `${titleBase.slice(0, 60)}...` : titleBase;
-            const mode = (session.mode ?? "").toLowerCase().includes("debug") ? "debug" : "improve";
-            const before = toScorePercent(session.overall_score_before ?? session.clarity_score_before);
-            const after = toScorePercent(session.overall_score_after ?? session.clarity_score_after);
+            const scores = formatScorePair(item.session.overall_score_before, item.session.overall_score_after);
+            const scoreBefore = Number(item.session.overall_score_before ?? 0);
+            const scoreAfter = Number(item.session.overall_score_after ?? 0);
+            const scoreImproved = scoreAfter > scoreBefore;
 
             return (
               <Link
-                key={session.id}
-                to={`/sessions/${session.id}`}
+                key={`${item.kind}-${id}`}
+                to={`/sessions/${id}`}
                 className="group rounded-2xl border border-[#E5E5EA] bg-white/72 p-4 no-underline transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_24px_rgba(28,28,30,0.10)]"
                 style={{ backdropFilter: "blur(12px)" }}
               >
@@ -436,30 +428,33 @@ export const HistoryPage = () => {
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <span
                     className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                      mode === "debug" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"
+                      item.kind === "fix" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"
                     }`}
                   >
-                    {mode === "debug" ? "Debug" : "Improve"}
+                    {item.kind === "fix" ? "Fix" : "Improve"}
                   </span>
-                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${platformClass(session.platform)}`}>
-                    {session.platform ?? "Other"}
+                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${platformClass(item.session.platform)}`}>
+                    {item.session.platform ?? "Other"}
                   </span>
+                  {item.kind === "fix" && item.session.language_detected ? (
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${languageClass()}`}>
+                      {item.session.language_detected}
+                    </span>
+                  ) : null}
                 </div>
 
-                {mode === "improve" ? (
+                {scores ? (
                   <div className="mt-3 inline-flex items-center gap-1 rounded-full border border-[#D1D1D6] bg-white/90 px-2.5 py-1 text-xs font-semibold text-[#1C1C1E]">
-                    <span>{before}</span>
-                    <span className="text-emerald-500">↑</span>
-                    <span>{after}</span>
+                    <span>{scores.split(" → ")[0]}</span>
+                    <span className={scoreImproved ? "text-emerald-500" : "text-[#8E8E93]"}>
+                      {scoreImproved ? "↑" : "→"}
+                    </span>
+                    <span>{scores.split(" → ")[1]}</span>
                   </div>
-                ) : (
-                  <span className={`mt-3 inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${rootCauseClass(session.debug_root_cause)}`}>
-                    {session.debug_root_cause ?? "Root cause pending"}
-                  </span>
-                )}
+                ) : null}
 
                 <div className="mt-3 flex items-center justify-between text-xs text-[#8E8E93]">
-                  <span>{timeAgo(session.created_at)}</span>
+                  <span>{timeAgo(item.created_at)}</span>
                   <span className="text-[#C7C7CC] transition group-hover:text-[#8E8E93]">→</span>
                 </div>
               </Link>
@@ -474,6 +469,24 @@ export const HistoryPage = () => {
           <span className="h-5 w-5 animate-spin rounded-full border-2 border-[#3B82F6]/30 border-t-[#3B82F6]" />
         </div>
       ) : null}
+      <BottomSheet open={mobileSortOpen} onClose={() => setMobileSortOpen(false)}>
+        <h3 className="px-1 pb-2 text-[16px] font-semibold text-[#1C1C1E]">Sort Sessions</h3>
+        <div className="space-y-1 pb-2">
+          {SORT_OPTIONS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => {
+                setSort(option.id);
+                setMobileSortOpen(false);
+              }}
+              className={`block min-h-[44px] w-full rounded-2xl px-4 py-3 text-left text-sm ${sort === option.id ? "bg-blue-50 text-[#3B82F6]" : "text-[#1C1C1E]"}`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </BottomSheet>
     </section>
   );
 };

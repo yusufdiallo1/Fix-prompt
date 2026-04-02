@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test:smoke": "playwright test tests/dashboard-smoke.spec.ts"
+    "test:smoke": "playwright test tests/dashboard-smoke.spec.ts tests/render-firewall.spec.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

@@ -1,6 +1,7 @@
 import type { ErrorInfo, ReactNode } from "react";
 import { Component } from "react";
 import { useLocation } from "react-router-dom";
+import { clearRouteFailureCount, incrementRouteFailureCount, setRuntimeLockdown } from "../lib/runtimeFirewall";
 
 interface BoundaryProps {
   children: ReactNode;
@@ -26,6 +27,17 @@ class AppErrorBoundaryInner extends Component<InnerProps, BoundaryState> {
   }
 
   componentDidCatch(error: unknown, errorInfo: ErrorInfo) {
+    const failureCount = incrementRouteFailureCount(this.props.routePath);
+    if (failureCount >= 4) {
+      const reason = `Repeated route render failures on ${this.props.routePath}`;
+      setRuntimeLockdown(reason);
+      window.dispatchEvent(
+        new CustomEvent("pf-runtime-firewall", {
+          detail: { reason, routePath: this.props.routePath },
+        }),
+      );
+    }
+
     console.error("[AppErrorBoundary] Route render failure", {
       routePath: this.props.routePath,
       message: error instanceof Error ? error.message : String(error),
@@ -41,6 +53,7 @@ class AppErrorBoundaryInner extends Component<InnerProps, BoundaryState> {
   }
 
   private retry = () => {
+    clearRouteFailureCount(this.props.routePath);
     this.setState({ hasError: false, errorMessage: null });
     window.location.reload();
   };

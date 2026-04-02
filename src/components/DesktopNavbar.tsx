@@ -8,9 +8,9 @@ import { supabase } from "../lib/supabase";
 const NAV_LINKS = [
   { label: "Home", to: "/dashboard" },
   { label: "Improve", to: "/improve" },
-  { label: "Debug", to: "/debug" },
-  { label: "Saved", to: "/saved" },
+  { label: "Fix", to: "/debug" },
   { label: "History", to: "/history" },
+  { label: "Settings", to: "/settings" },
 ];
 
 export const DesktopNavbar = () => {
@@ -108,8 +108,7 @@ export const DesktopNavbar = () => {
           to="/dashboard"
           className="flex select-none items-center gap-2 text-[#1C1C1E] no-underline"
         >
-          <span className="text-lg leading-none">🔥</span>
-          <span className="brand-wordmark text-[17px] font-semibold tracking-[-0.02em]">PromptFix</span>
+          <span className="brand-wordmark text-[20px] font-semibold tracking-[-0.01em]">Prompt Fix</span>
         </Link>
 
         {/* Nav links with sliding indicator */}
@@ -148,7 +147,7 @@ export const DesktopNavbar = () => {
           {!isPro ? (
             <>
               <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[12px] font-semibold text-blue-700">
-                {usageLoading ? "..." : `${remainingCount} prompts/debug left`}
+                {usageLoading ? "..." : `${remainingCount} sessions left`}
               </span>
               <button
                 type="button"
@@ -166,7 +165,7 @@ export const DesktopNavbar = () => {
             </>
           ) : (
             <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[12px] font-semibold text-emerald-700">
-              Pro • Unlimited prompts/debug
+              Pro • Unlimited sessions
             </span>
           )}
 

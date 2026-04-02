@@ -5,8 +5,6 @@ import { supabase } from "../lib/supabase";
 import {
   BoltIcon,
   BoltIconFilled,
-  BookmarkIcon,
-  BookmarkIconFilled,
   ClockIcon,
   ClockIconFilled,
   HomeIcon,
@@ -15,12 +13,21 @@ import {
   SparklesIconFilled,
 } from "./NavIcons";
 
+function SettingsIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} className={className}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317a1.724 1.724 0 013.35 0 1.724 1.724 0 002.573 1.066 1.724 1.724 0 012.356.998 1.724 1.724 0 001.314 2.223 1.724 1.724 0 010 3.292 1.724 1.724 0 00-1.314 2.223 1.724 1.724 0 01-2.356.998 1.724 1.724 0 00-2.573 1.066 1.724 1.724 0 01-3.35 0 1.724 1.724 0 00-2.573-1.066 1.724 1.724 0 01-2.356-.998 1.724 1.724 0 00-1.314-2.223 1.724 1.724 0 010-3.292 1.724 1.724 0 001.314-2.223 1.724 1.724 0 012.356-.998 1.724 1.724 0 002.573-1.066z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 15.75A3.75 3.75 0 1012 8.25a3.75 3.75 0 000 7.5z" />
+    </svg>
+  );
+}
+
 const TABS = [
   { label: "Home", to: "/dashboard", Icon: HomeIcon, ActiveIcon: HomeIconFilled },
   { label: "Improve", to: "/improve", Icon: SparklesIcon, ActiveIcon: SparklesIconFilled },
-  { label: "Debug", to: "/debug", Icon: BoltIcon, ActiveIcon: BoltIconFilled },
-  { label: "Saved", to: "/saved", Icon: BookmarkIcon, ActiveIcon: BookmarkIconFilled },
+  { label: "Fix", to: "/debug", Icon: BoltIcon, ActiveIcon: BoltIconFilled },
   { label: "History", to: "/history", Icon: ClockIcon, ActiveIcon: ClockIconFilled },
+  { label: "Settings", to: "/settings", Icon: SettingsIcon, ActiveIcon: SettingsIcon },
 ] as const;
 
 export const MobileTabBar = () => {

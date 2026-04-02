@@ -7,17 +7,6 @@ const REQUEST_LIMIT = 10;
 const REQUEST_WINDOW_MS = 60_000;
 const requestTimestamps: number[] = [];
 
-type RootCause =
-  | "MISSING_CONTEXT"
-  | "AMBIGUOUS_REQUIREMENTS"
-  | "PLATFORM_LIMITATION"
-  | "SCOPE_CREEP"
-  | "TECH_MISMATCH"
-  | "MISSING_DEPENDENCY"
-  | "LOGIC_ERROR"
-  | "STYLE_CONFLICT";
-
-type ErrorType = "RUNTIME" | "BUILD" | "LOGIC" | "STYLE" | "UNKNOWN";
 type ComplexityLevel = "simple" | "medium" | "complex";
 
 export interface ImprovePromptInput {
@@ -52,34 +41,39 @@ export interface ImprovePromptResponse {
   session_id?: string;
 }
 
-export interface DebugPromptInput {
-  original_prompt: string;
-  broken_code: string;
-  error_message: string;
+export interface AnalyzeCodeInput {
+  original_code: string;
+  error_description: string;
   platform: string;
   user_id: string;
 }
 
-export interface DebugPromptResponse {
-  root_cause: RootCause;
-  diagnosis_summary: string;
-  specific_issues: string[];
-  confidence_score: number;
-  fix_prompt: string;
+export interface AnalyzeCodeResponse {
   fixed_code: string;
-  fixed_code_explanation: string;
-  fix_key_changes: string[];
-  alternative_fix_one: string;
-  alternative_fix_one_style: string;
-  alternative_fix_two: string;
-  alternative_fix_two_style: string;
-  alternative_code_one: string;
-  alternative_code_two: string;
-  platform_tips: string;
-  prevention_tips: string[];
-  framework_detected: string;
-  error_type: ErrorType;
+  fix_explanation: string;
+  bugs_found: string[];
+  key_fixes: string[];
+  alternative_one_code: string;
+  alternative_one_label: string;
+  alternative_one_explanation: string;
+  alternative_two_code: string;
+  alternative_two_label: string;
+  alternative_two_explanation: string;
+  alternative_three_code: string;
+  alternative_three_label: string;
+  alternative_three_explanation: string;
+  score_readability_before: number;
+  score_readability_after: number;
+  score_efficiency_before: number;
+  score_efficiency_after: number;
+  score_structure_before: number;
+  score_structure_after: number;
+  overall_score_before: number;
+  overall_score_after: number;
+  language_detected: string;
   complexity_level: ComplexityLevel;
+  prevention_tips: string[];
+  session_id?: string;
 }
 
 const improveSystemInstruction = `You are PromptFix, an expert prompt engineer who specializes in rewriting weak or vague prompts into clear, powerful, production-ready prompts for AI tools like Lovable, Cursor, Replit, ChatGPT, and Claude.
@@ -128,64 +122,117 @@ platform_tip: one specific tip for writing prompts on the platform the user sele
 
 Return only valid JSON. No explanation text before or after the JSON. No markdown code fences.`;
 
-const debugSystemInstruction = `You are PromptFix Debug, an expert code fixer. Your job is to diagnose broken code, produce corrected code, explain what changed, and provide alternative working code options.
+const analyzeCodeSystemInstruction = `You are PromptFix Code Analyser, an expert software engineer who specialises in finding bugs, fixing code, and suggesting better approaches.
 
-Your job is to analyze all three inputs and return a JSON object with exactly these fields:
+The user will give you broken, buggy, or poorly written code. Your job is to:
+1. Identify every bug and problem in the code
+2. Fix the code completely so it works correctly
+3. Give three alternative approaches to solving the same problem in different ways
+4. Score the original code quality honestly
 
-root_cause: exactly one of these categories:
-MISSING_CONTEXT, AMBIGUOUS_REQUIREMENTS,
-PLATFORM_LIMITATION, SCOPE_CREEP, TECH_MISMATCH,
-MISSING_DEPENDENCY, LOGIC_ERROR, STYLE_CONFLICT
+Return only a valid JSON object with exactly these fields and no other text:
 
-diagnosis_summary: 2 to 3 plain English sentences explaining exactly why the prompt produced broken code
+fixed_code: the complete corrected version of the code that works. Include every line, not just the changed parts. The user should be able to copy this and use it immediately.
 
-specific_issues: an array of 3 to 5 short strings each describing one specific problem found
+fix_explanation: 2 to 3 plain English sentences explaining what was broken and what you fixed.
 
-confidence_score: a number from 0 to 100 showing how confident the diagnosis is
+bugs_found: an array of 3 to 6 short strings each describing one specific bug or problem found in the original code.
 
-fix_prompt: short summary sentence of the debugging strategy in plain English
+key_fixes: an array of 3 to 5 short strings each describing one specific change made in the fix.
 
-fixed_code: the full corrected version of the user's broken code that should run better than the input
+alternative_one_code: a complete alternative version of the fixed code using a different approach than the main fix. Must be fully working.
 
-fixed_code_explanation: 2 to 4 short sentences explaining exactly what was changed and why
+alternative_one_label: a short 3 to 4 word label describing the approach, for example "Cleaner Simplified Version" or "Using Modern Syntax" or "Performance Optimised"
 
-fix_key_changes: an array of 3 to 5 short strings each describing one change made in the fix prompt
+alternative_one_explanation: one sentence explaining what makes this alternative different or better.
 
-alternative_fix_one: short summary sentence for alternative approach one
+alternative_two_code: a second complete alternative using yet another different approach.
 
-alternative_fix_one_style: a short 3 word label like "Minimal Safe Approach"
+alternative_two_label: short label for this approach.
 
-alternative_fix_two: short summary sentence for alternative approach two
+alternative_two_explanation: one sentence explanation.
 
-alternative_fix_two_style: a short 3 word label like "Smaller Scoped Steps"
+alternative_three_code: a third complete alternative.
 
-alternative_code_one: full alternative code version for approach one
+alternative_three_label: short label.
 
-alternative_code_two: full alternative code version for approach two
+alternative_three_explanation: one sentence explanation.
 
-platform_tips: one specific practical tip for avoiding this error on the platform the user selected
+score_readability_before: number 0 to 10 rating how readable and easy to understand the original code was.
 
-prevention_tips: an array of 2 to 3 short strings each describing how to prevent this problem in future
+score_efficiency_before: number 0 to 10 rating how efficient and performant the original code was.
 
-framework_detected: the programming framework or language detected in the broken code, for example React, Vue, Python, or Unknown
+score_structure_before: number 0 to 10 rating how well structured and organised the original code was.
 
-error_type: one of these: RUNTIME, BUILD, LOGIC, STYLE, UNKNOWN
+score_readability_after: same rating for the fixed code.
+score_efficiency_after: same for fixed code.
+score_structure_after: same for fixed code.
 
-complexity_level: one of these: simple, medium, complex
+overall_score_before: average of the three before scores rounded to one decimal place.
 
-Return only valid JSON. No explanation text. No markdown.`;
+overall_score_after: average of the three after scores rounded to one decimal place.
 
-const normalizeDebugResponse = (result: DebugPromptResponse): DebugPromptResponse => {
-  const fixedCode = (result.fixed_code ?? "").trim() || result.fix_prompt;
-  const altCodeOne = (result.alternative_code_one ?? "").trim() || result.alternative_fix_one;
-  const altCodeTwo = (result.alternative_code_two ?? "").trim() || result.alternative_fix_two;
+language_detected: the programming language or framework detected, for example React, Python, JavaScript, TypeScript, Swift, Dart, CSS, SQL.
+
+complexity_level: one of simple, medium, complex.
+
+prevention_tips: array of 2 to 3 short strings describing how to avoid these bugs in future.
+
+Return only valid JSON. No explanation before or after. No markdown code fences around the JSON.`;
+
+const asStringArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.map((v) => String(v).trim()).filter(Boolean);
+  if (typeof value === "string") return value.split(/\n/).map((s) => s.trim()).filter(Boolean);
+  return [];
+};
+
+const normalizeComplexity = (value: unknown): ComplexityLevel => {
+  const v = String(value ?? "").toLowerCase();
+  if (v === "simple" || v === "medium" || v === "complex") return v;
+  return "medium";
+};
+
+const normalizeAnalyzeCodeResponse = (result: Record<string, unknown>): AnalyzeCodeResponse => {
+  const rb = clampScore10(result.score_readability_before);
+  const eb = clampScore10(result.score_efficiency_before);
+  const sb = clampScore10(result.score_structure_before);
+  const ra = Math.max(rb, clampScore10(result.score_readability_after));
+  const ea = Math.max(eb, clampScore10(result.score_efficiency_after));
+  const sa = Math.max(sb, clampScore10(result.score_structure_after));
+  const overallBefore =
+    typeof result.overall_score_before === "number" && Number.isFinite(result.overall_score_before)
+      ? toOneDecimal(clampScore10(result.overall_score_before))
+      : toOneDecimal((rb + eb + sb) / 3);
+  const overallAfter =
+    typeof result.overall_score_after === "number" && Number.isFinite(result.overall_score_after)
+      ? toOneDecimal(clampScore10(result.overall_score_after))
+      : toOneDecimal((ra + ea + sa) / 3);
 
   return {
-    ...result,
-    fixed_code: fixedCode,
-    fixed_code_explanation: (result.fixed_code_explanation ?? "").trim() || result.diagnosis_summary,
-    alternative_code_one: altCodeOne,
-    alternative_code_two: altCodeTwo,
+    fixed_code: String(result.fixed_code ?? "").trim(),
+    fix_explanation: String(result.fix_explanation ?? "").trim(),
+    bugs_found: asStringArray(result.bugs_found),
+    key_fixes: asStringArray(result.key_fixes),
+    alternative_one_code: String(result.alternative_one_code ?? "").trim(),
+    alternative_one_label: String(result.alternative_one_label ?? "").trim() || "Alternative 1",
+    alternative_one_explanation: String(result.alternative_one_explanation ?? "").trim(),
+    alternative_two_code: String(result.alternative_two_code ?? "").trim(),
+    alternative_two_label: String(result.alternative_two_label ?? "").trim() || "Alternative 2",
+    alternative_two_explanation: String(result.alternative_two_explanation ?? "").trim(),
+    alternative_three_code: String(result.alternative_three_code ?? "").trim(),
+    alternative_three_label: String(result.alternative_three_label ?? "").trim() || "Alternative 3",
+    alternative_three_explanation: String(result.alternative_three_explanation ?? "").trim(),
+    score_readability_before: rb,
+    score_readability_after: ra,
+    score_efficiency_before: eb,
+    score_efficiency_after: ea,
+    score_structure_before: sb,
+    score_structure_after: sa,
+    overall_score_before: overallBefore,
+    overall_score_after: overallAfter,
+    language_detected: String(result.language_detected ?? "").trim() || "Unknown",
+    complexity_level: normalizeComplexity(result.complexity_level),
+    prevention_tips: asStringArray(result.prevention_tips),
   };
 };
 
@@ -262,7 +309,10 @@ const toClearApiError = (error: unknown) => {
   return new Error(`AI request failed: ${message}`);
 };
 
-const insertWithRawFallback = async (table: "prompt_sessions" | "debug_sessions", payload: Record<string, unknown>) => {
+const insertWithRawFallback = async (
+  table: "prompt_sessions" | "code_sessions",
+  payload: Record<string, unknown>,
+) => {
   if (!supabase) return null;
   const { data, error } = await supabase.from(table).insert(payload).select("id").single();
   if (!error) return data as { id: string };
@@ -435,72 +485,61 @@ const saveImproveSession = async ({
   return promptSession?.id ?? null;
 };
 
-const saveDebugSession = async ({
+const buildCodeSessionTitle = (language: string, code: string) => {
+  const trimmed = code.trim();
+  const collapsed = trimmed.replace(/\s+/g, " ");
+  const snippet = collapsed.length > 40 ? `${collapsed.slice(0, 40)}…` : collapsed;
+  const lang = language.trim() || "Code";
+  return trimTitle(`${lang} — ${snippet}`);
+};
+
+const saveCodeSession = async ({
   input,
   result,
   rawResponse,
 }: {
-  input: DebugPromptInput;
-  result: DebugPromptResponse;
+  input: AnalyzeCodeInput;
+  result: AnalyzeCodeResponse;
   rawResponse: string;
 }) => {
-  const title = trimTitle(input.original_prompt);
-  const promptSession = await insertWithRawFallback("prompt_sessions", {
+  const title = buildCodeSessionTitle(result.language_detected, input.original_code);
+  const row = await insertWithRawFallback("code_sessions", {
     user_id: input.user_id,
     title,
-    original_prompt: input.original_prompt.trim(),
-    improved_prompt: result.fixed_code,
-    alternative_one: result.alternative_code_one,
-    alternative_two: result.alternative_code_two,
-    alternative_three: null,
-    alternative_one_style: result.alternative_fix_one_style,
-    alternative_two_style: result.alternative_fix_two_style,
-    alternative_three_style: null,
-    improvement_summary: result.diagnosis_summary,
-    key_changes: result.fix_key_changes.join("\n"),
+    original_code: input.original_code.trim(),
+    error_description: input.error_description.trim() || null,
+    language_detected: result.language_detected,
     platform: input.platform,
-    prompt_type: "debug",
-    word_count_before: getWordCount(input.original_prompt),
-    word_count_after: getWordCount(result.fixed_code),
-    clarity_score_before: null,
-    clarity_score_after: null,
-    score_clarity_before: null,
-    score_specificity_before: null,
-    score_detail_before: null,
-    score_clarity_after: null,
-    score_specificity_after: null,
-    score_detail_after: null,
-    overall_score_before: null,
-    overall_score_after: null,
-    mode: "debug",
-    status: "completed",
-    raw_response: rawResponse,
-  });
-  if (promptSession?.id) {
-    await updateUserStreak(input.user_id);
-  }
-
-  await insertWithRawFallback("debug_sessions", {
-    user_id: input.user_id,
-    prompt_session_id: promptSession?.id ?? null,
-    original_prompt: input.original_prompt.trim(),
-    broken_code: input.broken_code.trim(),
-    error_message: input.error_message.trim(),
-    platform: input.platform,
-    root_cause: result.root_cause,
-    diagnosis_summary: result.diagnosis_summary,
-    specific_issues: result.specific_issues.join("\n"),
-    fix_prompt: result.fixed_code,
-    key_changes: result.fix_key_changes.join("\n"),
-    platform_tips: result.platform_tips,
+    fixed_code: result.fixed_code,
+    fix_explanation: result.fix_explanation,
+    alternative_one_code: result.alternative_one_code,
+    alternative_one_label: result.alternative_one_label,
+    alternative_one_explanation: result.alternative_one_explanation,
+    alternative_two_code: result.alternative_two_code,
+    alternative_two_label: result.alternative_two_label,
+    alternative_two_explanation: result.alternative_two_explanation,
+    alternative_three_code: result.alternative_three_code,
+    alternative_three_label: result.alternative_three_label,
+    alternative_three_explanation: result.alternative_three_explanation,
+    score_readability_before: result.score_readability_before,
+    score_readability_after: result.score_readability_after,
+    score_efficiency_before: result.score_efficiency_before,
+    score_efficiency_after: result.score_efficiency_after,
+    score_structure_before: result.score_structure_before,
+    score_structure_after: result.score_structure_after,
+    overall_score_before: result.overall_score_before,
+    overall_score_after: result.overall_score_after,
+    bugs_found: result.bugs_found.join("\n"),
+    key_fixes: result.key_fixes.join("\n"),
     prevention_tips: result.prevention_tips.join("\n"),
-    confidence_score: result.confidence_score,
-    framework_detected: result.framework_detected,
-    error_type: result.error_type,
     complexity_level: result.complexity_level,
     status: "completed",
     raw_response: rawResponse,
   });
+  if (row?.id) {
+    await updateUserStreak(input.user_id);
+  }
+  return row?.id ?? null;
 };
 
 export const improvePrompt = async (input: ImprovePromptInput): Promise<ImprovePromptResponse> => {
@@ -526,25 +565,24 @@ export const improvePrompt = async (input: ImprovePromptInput): Promise<ImproveP
   }
 };
 
-export const debugPrompt = async (input: DebugPromptInput): Promise<DebugPromptResponse> => {
+export const analyzeCode = async (input: AnalyzeCodeInput): Promise<AnalyzeCodeResponse> => {
   enforceRateLimit();
   const userPrompt = [
-    `original_prompt:\n${input.original_prompt.trim()}`,
-    `broken_code:\n${input.broken_code.trim()}`,
-    `error_message:\n${input.error_message.trim()}`,
+    `original_code:\n${input.original_code.trim()}`,
+    `error_description:\n${input.error_description.trim() || "(none provided)"}`,
     `platform: ${input.platform}`,
   ].join("\n\n");
 
   try {
-    const { parsed, raw } = await requestJsonCompletion<DebugPromptResponse>({
-      system: debugSystemInstruction,
+    const { parsed, raw } = await requestJsonCompletion<Record<string, unknown>>({
+      system: analyzeCodeSystemInstruction,
       user: userPrompt,
     });
-    const normalized = normalizeDebugResponse(parsed);
-    await saveDebugSession({ input, result: normalized, rawResponse: raw });
-    return normalized;
+    const normalized = normalizeAnalyzeCodeResponse(parsed);
+    const sessionId = await saveCodeSession({ input, result: normalized, rawResponse: raw });
+    return { ...normalized, session_id: sessionId ?? undefined };
   } catch (error) {
-    console.error("debugPrompt failed", { error, input });
+    console.error("analyzeCode failed", { error, input });
     if (error instanceof Error) throw error;
     throw new Error("AI request failed. Please try again.");
   }

@@ -32,3 +32,20 @@ This document defines rules that prevent "blank page" regressions in protected a
 
 - Use guard helpers (for example, `safeText`) for dynamic labels and titles.
 - Never assume `title`, prompt fields, or profile fields are non-null.
+
+## 7) Landing reveal sections must fail open
+
+- Landing wrappers such as `.landing-reveal` must default to visible and only animate when reveal classes are applied.
+- Never keep a hidden-by-default landing wrapper without a guaranteed fallback reveal path.
+- `useScrollReveal` must force visible state on timeout if observers do not fire.
+
+## 8) Runtime firewall must stay enabled
+
+- Keep global handlers for `window.error` and `unhandledrejection` to detect repeated runtime failures.
+- Route render failures should increment bounded counters and trigger a safe fallback screen instead of blank output.
+- Recovery UI must always provide: retry render, reset auth/session state, and reload app actions.
+
+## 9) Favicon reliability requirements
+
+- Keep favicon files in `public/` with both SVG and bitmap fallbacks (`favicon.ico`, `favicon-32x32.png`, `favicon-16x16.png`).
+- Use cache-busted favicon link URLs in `index.html` after icon updates to avoid stale browser cache.

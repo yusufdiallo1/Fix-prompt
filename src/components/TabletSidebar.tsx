@@ -9,7 +9,7 @@ import { BoltIcon, BookmarkIcon, ClockIcon, HomeIcon, SparklesIcon } from "./Nav
 const NAV_ITEMS = [
   { label: "Home", to: "/dashboard", Icon: HomeIcon },
   { label: "Improve", to: "/improve", Icon: SparklesIcon },
-  { label: "Debug", to: "/debug", Icon: BoltIcon },
+  { label: "Fix", to: "/debug", Icon: BoltIcon },
   { label: "Saved", to: "/saved", Icon: BookmarkIcon },
   { label: "History", to: "/history", Icon: ClockIcon },
 ] as const;
@@ -58,10 +58,10 @@ export const TabletSidebar = () => {
       >
         <Link
           to="/dashboard"
-          aria-label="PromptFix home"
-          className="mb-4 flex h-10 w-10 select-none items-center justify-center rounded-xl bg-gradient-to-br from-[#3B82F6] to-[#A78BFA] text-base text-white no-underline"
+          aria-label="Prompt Fix home"
+          className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl border border-[#D1D1D6] text-center no-underline"
         >
-          🔥
+          <span className="brand-wordmark text-[11px] font-semibold leading-none text-[#1C1C1E]">PF</span>
         </Link>
 
         <div className="flex flex-col items-center gap-2">
@@ -114,7 +114,7 @@ export const TabletSidebar = () => {
             type="button"
             onClick={() => navigate("/settings")}
             aria-label="Open settings"
-            className="mb-2 flex h-10 w-10 items-center justify-center rounded-full border border-[#D1D1D6] bg-white/90 text-[#636366] active:scale-95"
+            className="mb-2 flex h-10 w-10 items-center justify-center rounded-full border border-[#D1D5DB] bg-[#E5E7EB] text-[#6B7280] active:scale-95"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-4 w-4">
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317a1.724 1.724 0 013.35 0 1.724 1.724 0 002.573 1.066 1.724 1.724 0 012.356.998 1.724 1.724 0 001.314 2.223 1.724 1.724 0 010 3.292 1.724 1.724 0 00-1.314 2.223 1.724 1.724 0 01-2.356.998 1.724 1.724 0 00-2.573 1.066 1.724 1.724 0 01-3.35 0 1.724 1.724 0 00-2.573-1.066 1.724 1.724 0 01-2.356-.998 1.724 1.724 0 00-1.314-2.223 1.724 1.724 0 010-3.292 1.724 1.724 0 001.314-2.223 1.724 1.724 0 012.356-.998 1.724 1.724 0 002.573-1.066z" />
@@ -168,10 +168,10 @@ export const TabletSidebar = () => {
                 }}
                 className="block w-full rounded-2xl px-4 py-3 text-left text-[15px] font-semibold text-[#3B82F6]"
               >
-                Upgrade to Pro ({usageLoading ? "..." : `${remainingCount} prompts/debug left`})
+                Upgrade to Pro ({usageLoading ? "..." : `${remainingCount} sessions left`})
               </button>
             ) : (
-              <p className="px-4 py-2 text-sm font-semibold text-emerald-700">Pro active • Unlimited prompts/debug</p>
+              <p className="px-4 py-2 text-sm font-semibold text-emerald-700">Pro active • Unlimited sessions</p>
             )}
             <button
               type="button"

@@ -104,7 +104,7 @@ export const SignUpPage = () => {
         <h2 className="text-[20px] font-bold tracking-[-0.015em] text-[#1C1C1E]">
           Create your account
         </h2>
-        <p className="mt-1 text-sm text-[#636366]">
+        <p className="mt-1 text-sm text-[#1C1C1E]">
           Start building better prompts today
         </p>
 
@@ -202,7 +202,7 @@ export const SignUpPage = () => {
       </div>
 
       {/* Footer link */}
-      <p className="mt-5 text-center text-sm text-[#636366]">
+      <p className="mt-5 text-center text-sm text-[#1C1C1E]">
         Already have an account?{" "}
         <Link to="/login" className="auth-link">
           Sign in

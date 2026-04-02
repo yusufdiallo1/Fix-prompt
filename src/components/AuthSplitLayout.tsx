@@ -18,35 +18,6 @@ export const AuthSplitLayout = ({ children }: AuthSplitLayoutProps) => {
         >
           {children}
 
-          {/* Mobile/tablet fallback demo panel */}
-          <div className="mt-6 space-y-3 md:hidden">
-            <div className="auth-demo-card p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-rose-300">Before</p>
-              <p className="mt-2 text-sm text-slate-300">"make login not crash maybe add checks"</p>
-              <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-300">After</p>
-              <p className="mt-2 text-sm text-slate-100">
-                Build a login flow with schema validation, clear error states, and unit tests for invalid credentials.
-              </p>
-              <div className="mt-3 h-1.5 w-full rounded-full bg-white/10">
-                <div className="h-full rounded-full bg-gradient-to-r from-blue-400 to-violet-400" />
-              </div>
-            </div>
-            <div className="auth-demo-card p-4">
-              <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-300">
-                <span>Debug session</span>
-                <span className="rounded-full bg-amber-400/15 px-2 py-0.5 text-amber-200">Fix generated</span>
-              </div>
-              <p className="text-xs text-slate-300">TypeError: Cannot read properties of undefined (reading 'map')</p>
-              <div className="mt-3 space-y-2">
-                <div className="h-2 w-[88%] rounded bg-slate-700/80" />
-                <div className="h-2 w-[72%] rounded bg-slate-700/80" />
-                <div className="h-2 w-[80%] rounded bg-slate-700/80" />
-              </div>
-              <p className="mt-3 text-xs text-emerald-300">
-                Added null guard, fallback array, and stronger prompt constraints.
-              </p>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -66,7 +37,7 @@ export const AuthSplitLayout = ({ children }: AuthSplitLayoutProps) => {
             Live prompt workflow
           </p>
           <h3 className="font-syne text-3xl font-bold leading-tight text-white">
-            Watch rough prompts get fixed and buggy outputs get debugged.
+            Watch rough prompts get polished and broken code gets fixed.
           </h3>
 
           <div className="mt-8 space-y-4">
@@ -84,7 +55,7 @@ export const AuthSplitLayout = ({ children }: AuthSplitLayoutProps) => {
 
             <div className="auth-demo-card auth-float-fast p-4">
               <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-300">
-                <span>Debug session</span>
+                <span>Code fix session</span>
                 <span className="rounded-full bg-amber-400/15 px-2 py-0.5 text-amber-200">Fix generated</span>
               </div>
               <p className="text-xs text-slate-300">TypeError: Cannot read properties of undefined (reading 'map')</p>

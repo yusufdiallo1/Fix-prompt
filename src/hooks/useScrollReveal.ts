@@ -8,11 +8,23 @@ export const useScrollReveal = (selector: string = DEFAULT_SELECTOR, watch: unkn
     const nodes = Array.from(document.querySelectorAll<HTMLElement>(selector));
     if (nodes.length === 0) return;
 
+    const showNode = (node: HTMLElement) => {
+      node.classList.add("reveal-visible");
+      node.classList.add("visible");
+    };
+
+    const revealAll = () => nodes.forEach(showNode);
     const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
     nodes.forEach((node) => node.classList.add("reveal-on-scroll"));
 
     if (prefersReduced) {
-      nodes.forEach((node) => node.classList.add("reveal-visible"));
+      revealAll();
+      return;
+    }
+
+    if (typeof window.IntersectionObserver === "undefined") {
+      revealAll();
       return;
     }
 
@@ -20,22 +32,32 @@ export const useScrollReveal = (selector: string = DEFAULT_SELECTOR, watch: unkn
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            entry.target.classList.add("reveal-visible");
+            showNode(entry.target as HTMLElement);
             observer.unobserve(entry.target);
           }
         });
       },
       {
-        threshold: 0.14,
-        rootMargin: "0px 0px -8% 0px",
+        threshold: 0.08,
+        rootMargin: "0px 0px -4% 0px",
       },
     );
 
-    nodes.forEach((node) => {
-      if (node.classList.contains("reveal-visible")) return;
-      observer.observe(node);
-    });
+    nodes.forEach((node) => observer.observe(node));
 
-    return () => observer.disconnect();
+    // Never allow landing sections to remain hidden if observers stall.
+    const fallbackTimer = window.setTimeout(() => {
+      revealAll();
+      const stillHidden = nodes.some((node) => window.getComputedStyle(node).opacity === "0");
+      if (stillHidden) {
+        console.warn("[ScrollReveal] Hidden sections detected; forcing visible state.");
+        revealAll();
+      }
+    }, 700);
+
+    return () => {
+      window.clearTimeout(fallbackTimer);
+      observer.disconnect();
+    };
   }, [selector, watch]);
 };

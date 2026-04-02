@@ -49,7 +49,7 @@ export const LoginPage = () => {
         <h2 className="text-[20px] font-bold tracking-[-0.015em] text-[#1C1C1E]">
           Welcome back
         </h2>
-        <p className="mt-1 text-sm text-[#636366]">
+        <p className="mt-1 text-sm text-[#1C1C1E]">
           Sign in to continue to <span className="brand-wordmark">PromptFix</span>
         </p>
 
@@ -105,7 +105,7 @@ export const LoginPage = () => {
       </div>
 
       {/* Footer link */}
-      <p className="mt-5 text-center text-sm text-[#636366]">
+      <p className="mt-5 text-center text-sm text-[#1C1C1E]">
         Don't have an account?{" "}
         <Link to="/signup" className="auth-link">
           Sign up

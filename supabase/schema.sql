@@ -6,6 +6,7 @@ drop function if exists public.set_updated_at();
 
 drop table if exists public.saved_prompts cascade;
 drop table if exists public.prompt_templates cascade;
+drop table if exists public.code_sessions cascade;
 drop table if exists public.debug_sessions cascade;
 drop table if exists public.prompt_sessions cascade;
 drop table if exists public.user_stats cascade;
@@ -76,27 +77,39 @@ alter table if exists public.prompt_sessions
   add column if not exists overall_score_before numeric(4,1),
   add column if not exists overall_score_after numeric(4,1);
 
-create table if not exists public.debug_sessions (
+create table if not exists public.code_sessions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  prompt_session_id uuid references public.prompt_sessions(id) on delete set null,
-  original_prompt text,
-  broken_code text,
-  error_message text,
+  title text not null,
+  original_code text not null,
+  error_description text,
+  language_detected text,
   platform text,
-  root_cause text,
-  diagnosis_summary text,
-  specific_issues text,
-  fix_prompt text,
-  key_changes text,
-  platform_tips text,
+  fixed_code text,
+  fix_explanation text,
+  alternative_one_code text,
+  alternative_one_label text,
+  alternative_one_explanation text,
+  alternative_two_code text,
+  alternative_two_label text,
+  alternative_two_explanation text,
+  alternative_three_code text,
+  alternative_three_label text,
+  alternative_three_explanation text,
+  score_readability_before numeric(4,1),
+  score_readability_after numeric(4,1),
+  score_efficiency_before numeric(4,1),
+  score_efficiency_after numeric(4,1),
+  score_structure_before numeric(4,1),
+  score_structure_after numeric(4,1),
+  overall_score_before numeric(4,1),
+  overall_score_after numeric(4,1),
+  bugs_found text,
+  key_fixes text,
   prevention_tips text,
-  confidence_score numeric(5,2),
-  framework_detected text,
-  error_type text,
   complexity_level text,
-  raw_response text,
   status text default 'completed',
+  raw_response text,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
@@ -104,7 +117,9 @@ create table if not exists public.debug_sessions (
 create table if not exists public.saved_prompts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  session_id uuid not null references public.prompt_sessions(id) on delete cascade,
+  session_id uuid references public.prompt_sessions(id) on delete cascade,
+  code_session_id uuid references public.code_sessions(id) on delete cascade,
+  saved_type text not null default 'prompt',
   prompt_text text not null,
   prompt_type text,
   label text,
@@ -112,12 +127,19 @@ create table if not exists public.saved_prompts (
   is_favourite boolean not null default false,
   source_alternative text,
   platform text,
-  created_at timestamptz not null default timezone('utc', now())
+  created_at timestamptz not null default timezone('utc', now()),
+  constraint saved_prompts_session_or_code_check check (
+    (saved_type = 'prompt' and session_id is not null)
+    or
+    (saved_type = 'code' and code_session_id is not null)
+  )
 );
 
 alter table if exists public.saved_prompts
   add column if not exists is_favourite boolean not null default false,
-  add column if not exists source_alternative text;
+  add column if not exists source_alternative text,
+  add column if not exists code_session_id uuid references public.code_sessions(id) on delete cascade,
+  add column if not exists saved_type text not null default 'prompt';
 
 create table if not exists public.user_stats (
   id uuid primary key default gen_random_uuid(),
@@ -142,6 +164,10 @@ alter table if exists public.user_stats
   add column if not exists last_session_date date,
   add column if not exists streak_updated_at timestamptz;
 
+alter table if exists public.user_stats
+  add column if not exists stt_language text default 'en-US',
+  add column if not exists stt_auto_improve boolean not null default false;
+
 create table if not exists public.prompt_templates (
   id uuid primary key default gen_random_uuid(),
   category text not null,
@@ -156,8 +182,9 @@ create table if not exists public.prompt_templates (
 
 create index if not exists idx_prompt_sessions_user_id on public.prompt_sessions(user_id);
 create index if not exists idx_prompt_sessions_parent_session_id on public.prompt_sessions(parent_session_id);
-create index if not exists idx_debug_sessions_user_id on public.debug_sessions(user_id);
-create index if not exists idx_debug_sessions_prompt_session_id on public.debug_sessions(prompt_session_id);
+create index if not exists idx_code_sessions_user_id on public.code_sessions(user_id);
+create index if not exists idx_code_sessions_created_at on public.code_sessions(created_at desc);
+create index if not exists idx_saved_prompts_code_session_id on public.saved_prompts(code_session_id);
 create index if not exists idx_saved_prompts_user_id on public.saved_prompts(user_id);
 create index if not exists idx_saved_prompts_session_id on public.saved_prompts(session_id);
 create index if not exists idx_prompt_templates_category on public.prompt_templates(category);
@@ -203,9 +230,9 @@ create trigger trg_prompt_sessions_updated_at
 before update on public.prompt_sessions
 for each row execute function public.set_updated_at();
 
-drop trigger if exists trg_debug_sessions_updated_at on public.debug_sessions;
-create trigger trg_debug_sessions_updated_at
-before update on public.debug_sessions
+drop trigger if exists trg_code_sessions_updated_at on public.code_sessions;
+create trigger trg_code_sessions_updated_at
+before update on public.code_sessions
 for each row execute function public.set_updated_at();
 
 drop trigger if exists trg_user_stats_updated_at on public.user_stats;
@@ -215,7 +242,7 @@ for each row execute function public.set_updated_at();
 
 alter table public.users_profiles enable row level security;
 alter table public.prompt_sessions enable row level security;
-alter table public.debug_sessions enable row level security;
+alter table public.code_sessions enable row level security;
 alter table public.saved_prompts enable row level security;
 alter table public.user_stats enable row level security;
 alter table public.prompt_templates enable row level security;
@@ -270,28 +297,28 @@ on public.prompt_sessions
 for delete
 using (auth.uid() = user_id);
 
-drop policy if exists "debug_sessions_select_own" on public.debug_sessions;
-create policy "debug_sessions_select_own"
-on public.debug_sessions
+drop policy if exists "code_sessions_select_own" on public.code_sessions;
+create policy "code_sessions_select_own"
+on public.code_sessions
 for select
 using (auth.uid() = user_id);
 
-drop policy if exists "debug_sessions_insert_own" on public.debug_sessions;
-create policy "debug_sessions_insert_own"
-on public.debug_sessions
+drop policy if exists "code_sessions_insert_own" on public.code_sessions;
+create policy "code_sessions_insert_own"
+on public.code_sessions
 for insert
 with check (auth.uid() = user_id);
 
-drop policy if exists "debug_sessions_update_own" on public.debug_sessions;
-create policy "debug_sessions_update_own"
-on public.debug_sessions
+drop policy if exists "code_sessions_update_own" on public.code_sessions;
+create policy "code_sessions_update_own"
+on public.code_sessions
 for update
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
 
-drop policy if exists "debug_sessions_delete_own" on public.debug_sessions;
-create policy "debug_sessions_delete_own"
-on public.debug_sessions
+drop policy if exists "code_sessions_delete_own" on public.code_sessions;
+create policy "code_sessions_delete_own"
+on public.code_sessions
 for delete
 using (auth.uid() = user_id);
 

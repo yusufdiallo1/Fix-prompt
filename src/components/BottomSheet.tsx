@@ -23,12 +23,12 @@ export const BottomSheet = ({ open, onClose, children }: BottomSheetProps) => {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[120] md:hidden">
-      <button type="button" aria-label="Close sheet" className="absolute inset-0 bg-black/40" onClick={onClose} />
+    <div className="fixed inset-0 z-[170] md:hidden">
+      <button type="button" aria-label="Close sheet" className="absolute inset-0 bg-black/40 bottom-sheet-backdrop-enter" onClick={onClose} />
       <div
         role="dialog"
         aria-modal="true"
-        className="absolute inset-x-0 bottom-0 rounded-t-[28px] border border-white/70 bg-white/92 px-4 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] pt-3 shadow-[0_-18px_38px_rgba(28,28,30,0.22)] backdrop-blur-2xl"
+        className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-[28px] border border-white/70 bg-white/92 px-4 pb-[calc(env(safe-area-inset-bottom,0px)+16px)] pt-3 shadow-[0_-18px_38px_rgba(28,28,30,0.22)] backdrop-blur-2xl bottom-sheet-enter"
         style={{
           transform: `translateY(${offsetY}px)`,
           transition: dragging ? "none" : "transform 260ms cubic-bezier(0.22,1,0.36,1)",

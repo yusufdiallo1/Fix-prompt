@@ -1,7 +1,9 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { improvePrompt, type ImprovePromptResponse } from "../lib/groq";
 import { useAuth } from "../hooks/useAuth";
+import { ListeningBanner, MicButton, SttTextMirror, useSpeechInput } from "./MicButton";
+import { getSttLanguage } from "../lib/stt";
 
 const PLATFORMS = ["Lovable", "Cursor", "Replit", "ChatGPT", "Claude", "Other"] as const;
 type Platform = (typeof PLATFORMS)[number];
@@ -45,6 +47,34 @@ export const QuickImproveFab = () => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [copied, setCopied] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
+  const [fabSpeechToast, setFabSpeechToast] = useState<{ text: string; error?: boolean } | null>(null);
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const quickListeningBannerRef = useRef<HTMLDivElement | null>(null);
+
+  const stt = useSpeechInput({
+    value: prompt,
+    onChange: setPrompt,
+    language: getSttLanguage(),
+    textareaRef: promptTextareaRef,
+    showToast: (text, isError) => {
+      if (isError) setError(text);
+      else setFabSpeechToast({ text, error: false });
+    },
+  });
+
+  useEffect(() => {
+    if (!fabSpeechToast) return;
+    const id = window.setTimeout(() => setFabSpeechToast(null), 4000);
+    return () => window.clearTimeout(id);
+  }, [fabSpeechToast]);
+
+  useEffect(() => {
+    if (stt.sttState !== "listening") return;
+    const id = window.requestAnimationFrame(() => {
+      quickListeningBannerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [stt.sttState]);
 
   const shouldHideForRoute = location.pathname.startsWith("/improve") || location.pathname.startsWith("/debug");
   const hidden = shouldHideForRoute || inputFocused;
@@ -201,13 +231,45 @@ export const QuickImproveFab = () => {
             {!result ? (
               <form onSubmit={handleSubmit} className="flex h-[calc(100%-42px)] flex-col gap-3">
                 <div className="relative flex-1 rounded-2xl border border-white/10 bg-[rgba(30,30,34,0.92)] p-3">
-                  <textarea
-                    value={prompt}
-                    onChange={(event) => setPrompt(event.target.value)}
-                    placeholder="Paste any prompt here..."
-                    className="h-full min-h-[220px] w-full resize-none rounded-xl border border-transparent bg-transparent p-2 text-sm leading-6 text-slate-100 outline-none"
-                    style={{ opacity: loading ? 0.5 : 1 }}
-                  />
+                  {stt.isSupported && (
+                    <ListeningBanner
+                      ref={quickListeningBannerRef}
+                      visible={stt.sttState === "listening"}
+                      onStop={stt.stop}
+                    />
+                  )}
+                  <div className="relative min-h-[210px] rounded-xl">
+                    {stt.isSupported && (stt.sttState === "listening" || stt.sttState === "processing") ? (
+                      <SttTextMirror
+                        dark
+                        committed={stt.committedPart}
+                        interim={stt.interimText}
+                        placeholder="Paste any prompt here..."
+                        className="p-2 pb-10 text-sm leading-6"
+                      />
+                    ) : null}
+                    <textarea
+                      ref={promptTextareaRef}
+                      value={prompt}
+                      onChange={(event) => setPrompt(event.target.value)}
+                      placeholder="Paste any prompt here..."
+                      className={[
+                        "h-full min-h-[210px] w-full resize-none rounded-xl border border-transparent bg-transparent p-2 pb-10 text-sm leading-6 outline-none",
+                        stt.isSupported && (stt.sttState === "listening" || stt.sttState === "processing")
+                          ? "relative z-[1] text-transparent caret-slate-100 placeholder:text-transparent"
+                          : "text-slate-100",
+                      ].join(" ")}
+                      style={{ opacity: loading ? 0.5 : 1 }}
+                    />
+                    {stt.isSupported && (
+                      <MicButton
+                        sttState={stt.sttState}
+                        onClick={stt.toggle}
+                        dark
+                        className="absolute bottom-[2px] left-[2px]"
+                      />
+                    )}
+                  </div>
                   {loading ? (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
                       <span className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-white" />
@@ -235,6 +297,17 @@ export const QuickImproveFab = () => {
                 </div>
 
                 {error ? <p className="text-xs text-rose-500">{error}</p> : null}
+                {fabSpeechToast ? (
+                  <p
+                    className={
+                      fabSpeechToast.error
+                        ? "text-xs text-rose-600"
+                        : "text-xs text-[#8E8E93]"
+                    }
+                  >
+                    {fabSpeechToast.text}
+                  </p>
+                ) : null}
 
                 <button
                   type="submit"

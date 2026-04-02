@@ -1,4 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ListeningBanner, MicButton, SttTextMirror, useSpeechInput } from "../components/MicButton";
+import { getSttLanguage } from "../lib/stt";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { usePlanUsage } from "../hooks/usePlanUsage";
@@ -203,6 +205,8 @@ export const ImprovePage = () => {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const animationCleanup = useRef<(() => void) | null>(null);
   const textareaSectionRef = useRef<HTMLDivElement | null>(null);
+  const handleSubmitRef = useRef<(() => Promise<void>) | null>(null);
+  const listeningBannerRef = useRef<HTMLDivElement | null>(null);
 
   const [platform, setPlatform] = useState<Platform | null>(null);
   const [promptType, setPromptType] = useState<PromptType | null>(null);
@@ -216,6 +220,7 @@ export const ImprovePage = () => {
   const [copiedAlternative, setCopiedAlternative] = useState<number | null>(null);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [speechToast, setSpeechToast] = useState<{ text: string; error?: boolean } | null>(null);
   const [shakeInput, setShakeInput] = useState(false);
   const [mobileWhatChangedOpen, setMobileWhatChangedOpen] = useState(false);
   const [pressSheetOpen, setPressSheetOpen] = useState(false);
@@ -244,6 +249,40 @@ export const ImprovePage = () => {
   const [typeRowScrolling, setTypeRowScrolling] = useState(false);
   const platformScrollTimeout = useRef<number | null>(null);
   const typeScrollTimeout = useRef<number | null>(null);
+
+  // ── Speech-to-Text ────────────────────────────────────────────────────────
+  const sttAutoImproveEnabled = (): boolean => {
+    try { return localStorage.getItem("stt_auto_improve") === "true"; } catch { return false; }
+  };
+
+  const handleSpeechFinalized = useCallback(() => {
+    if (!sttAutoImproveEnabled()) return;
+    window.setTimeout(() => void handleSubmitRef.current?.(), 1500);
+  }, []);
+
+  const stt = useSpeechInput({
+    value: originalPrompt,
+    onChange: setOriginalPrompt,
+    language: getSttLanguage(),
+    textareaRef: inputRef,
+    onSpeechFinalized: handleSpeechFinalized,
+    showToast: (text, isError) => setSpeechToast({ text, error: Boolean(isError) }),
+  });
+  // ─────────────────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!speechToast) return;
+    const id = window.setTimeout(() => setSpeechToast(null), 4000);
+    return () => window.clearTimeout(id);
+  }, [speechToast]);
+
+  useEffect(() => {
+    if (stt.sttState !== "listening") return;
+    const id = window.requestAnimationFrame(() => {
+      listeningBannerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [stt.sttState]);
 
   useEffect(() => {
     const raw = window.sessionStorage.getItem(QUICK_IMPROVE_STORAGE_KEY);
@@ -493,6 +532,8 @@ export const ImprovePage = () => {
     await supabase.from("saved_prompts").insert({
       user_id: user.id,
       session_id: sessionId,
+      code_session_id: null,
+      saved_type: "prompt",
       prompt_text: promptText,
       prompt_type: promptKind,
       label,
@@ -563,6 +604,8 @@ export const ImprovePage = () => {
       .insert({
         user_id: user.id,
         session_id: sessionId,
+        code_session_id: null,
+        saved_type: "prompt",
         prompt_text: promptText,
         prompt_type: promptKind,
         label,
@@ -686,6 +729,12 @@ export const ImprovePage = () => {
       setIsImproving(false);
     }
   };
+
+  useEffect(() => {
+    handleSubmitRef.current = () => handleSubmit();
+    // Always point at latest handleSubmit (large dependency surface).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  });
 
   const handleReImprove = async () => {
     if (!result || isImproving || !platform || !promptType) return;
@@ -942,15 +991,44 @@ export const ImprovePage = () => {
               Clear
             </button>
           </div>
-          <div className="relative">
+          {stt.isSupported && (
+            <ListeningBanner
+              ref={listeningBannerRef}
+              visible={stt.sttState === "listening"}
+              onStop={stt.stop}
+            />
+          )}
+          <div className="relative rounded-2xl">
+            {stt.isSupported && (stt.sttState === "listening" || stt.sttState === "processing") ? (
+              <SttTextMirror
+                committed={stt.committedPart}
+                interim={stt.interimText}
+                placeholder="Paste your prompt here... it can be as rough or as detailed as you want."
+                className="px-4 py-3 pb-12 pr-14 text-sm leading-relaxed"
+              />
+            ) : null}
             <textarea
               ref={inputRef}
               value={originalPrompt}
               onChange={(e) => setOriginalPrompt(e.target.value)}
               placeholder="Paste your prompt here... it can be as rough or as detailed as you want."
-              className="min-h-[160px] max-h-[320px] w-full resize-none rounded-2xl border border-[#D1D1D6] bg-white/85 px-4 py-3 pr-20 text-sm text-[#1C1C1E] outline-none transition focus:border-[#3B82F6] focus:shadow-[0_0_0_3px_rgba(59,130,246,0.12)]"
+              className={[
+                "scrollbar-hide min-h-[200px] max-h-[400px] w-full resize-none overflow-y-auto rounded-2xl border border-[#D1D1D6] bg-white/85 px-4 py-3 pb-12 pr-14 text-sm outline-none transition focus:border-[#3B82F6] focus:shadow-[0_0_0_3px_rgba(59,130,246,0.12)]",
+                stt.isSupported && (stt.sttState === "listening" || stt.sttState === "processing")
+                  ? "relative z-[1] bg-transparent text-transparent caret-[#1C1C1E] placeholder:text-transparent"
+                  : "text-[#1C1C1E]",
+              ].join(" ")}
             />
-            <span className="absolute bottom-3 right-3 text-xs text-[#8E8E93]">{getWordCount(originalPrompt)} words</span>
+            {stt.isSupported && (
+              <MicButton
+                sttState={stt.sttState}
+                onClick={stt.toggle}
+                className="absolute bottom-[2px] left-[2px]"
+              />
+            )}
+            <span className="pointer-events-none absolute bottom-3 right-3 text-xs text-[#8E8E93]">
+              {getWordCount(originalPrompt)} words
+            </span>
           </div>
 
           {showLengthAdvisor ? (
@@ -1411,6 +1489,18 @@ export const ImprovePage = () => {
       {toast ? (
         <div className="fixed bottom-5 right-5 rounded-xl bg-emerald-500 px-4 py-2 text-sm text-white shadow-lg">
           {toast}
+        </div>
+      ) : null}
+      {speechToast ? (
+        <div
+          className={[
+            "fixed bottom-5 left-5 z-[170] max-w-[min(92vw,360px)] rounded-xl border px-4 py-2 text-sm shadow-lg",
+            speechToast.error
+              ? "border-rose-200 bg-rose-50 text-rose-700"
+              : "border-[#E5E5EA] bg-[#F2F2F7] text-[#636366]",
+          ].join(" ")}
+        >
+          {speechToast.text}
         </div>
       ) : null}
       {favouriteToast ? (

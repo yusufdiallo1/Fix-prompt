@@ -1,19 +1,82 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
+import { useAppFont } from "../hooks/useAppFont";
 import { supabase } from "../lib/supabase";
+import { isSpeechSupported } from "../lib/stt";
+
+const STT_LANGUAGES = [
+  { value: "en-US", label: "English (US)" },
+  { value: "en-GB", label: "English (UK)" },
+  { value: "en-AU", label: "English (AU)" },
+  { value: "ar",    label: "Arabic" },
+  { value: "fr-FR", label: "French" },
+  { value: "es-ES", label: "Spanish" },
+  { value: "de-DE", label: "German" },
+  { value: "tr-TR", label: "Turkish" },
+] as const;
 
 export const SettingsPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { fontId, setFontId, options: fontOptions } = useAppFont();
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState<null | "password" | "signout" | "delete">(null);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // ── Speech-to-Text settings ───────────────────────────────────────────────
+  const [sttLanguage, setSttLanguage] = useState<string>(() => {
+    try { return localStorage.getItem("stt_language") ?? "en-US"; } catch { return "en-US"; }
+  });
+  const [sttAutoImprove, setSttAutoImprove] = useState<boolean>(() => {
+    try { return localStorage.getItem("stt_auto_improve") === "true"; } catch { return false; }
+  });
+  const sttSupported = isSpeechSupported();
+
+  // Load STT preferences from Supabase on mount.
+  useEffect(() => {
+    if (!supabase || !user?.id) return;
+    void (async () => {
+      const { data } = await supabase
+        .from("user_stats")
+        .select("stt_language,stt_auto_improve")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (!data) return;
+      const lang = (data as { stt_language?: string | null; stt_auto_improve?: boolean | null }).stt_language ?? "en-US";
+      const auto = (data as { stt_language?: string | null; stt_auto_improve?: boolean | null }).stt_auto_improve ?? false;
+      setSttLanguage(lang);
+      setSttAutoImprove(auto);
+      try {
+        localStorage.setItem("stt_language", lang);
+        localStorage.setItem("stt_auto_improve", String(auto));
+      } catch { /* ignore */ }
+    })();
+  }, [user?.id]);
+
+  const saveSttLanguage = async (lang: string) => {
+    setSttLanguage(lang);
+    try { localStorage.setItem("stt_language", lang); } catch { /* ignore */ }
+    if (!supabase || !user?.id) return;
+    await supabase
+      .from("user_stats")
+      .upsert({ user_id: user.id, stt_language: lang }, { onConflict: "user_id" });
+  };
+
+  const saveSttAutoImprove = async (val: boolean) => {
+    setSttAutoImprove(val);
+    try { localStorage.setItem("stt_auto_improve", String(val)); } catch { /* ignore */ }
+    if (!supabase || !user?.id) return;
+    await supabase
+      .from("user_stats")
+      .upsert({ user_id: user.id, stt_auto_improve: val }, { onConflict: "user_id" });
+  };
+  // ─────────────────────────────────────────────────────────────────────────
 
   const onChangePassword = async (event: FormEvent) => {
     event.preventDefault();
@@ -71,7 +134,7 @@ export const SettingsPage = () => {
     const userId = user.id;
     const operations = [
       supabase.from("saved_prompts").delete().eq("user_id", userId),
-      supabase.from("debug_sessions").delete().eq("user_id", userId),
+      supabase.from("code_sessions").delete().eq("user_id", userId),
       supabase.from("prompt_sessions").delete().eq("user_id", userId),
       supabase.from("user_stats").delete().eq("user_id", userId),
       supabase.from("users_profiles").delete().eq("user_id", userId),
@@ -120,6 +183,31 @@ export const SettingsPage = () => {
         </div>
       </div>
 
+      <div className="rounded-2xl border border-[#E5E5EA] bg-white/75 p-5 backdrop-blur-xl">
+        <p className="text-sm font-semibold text-[#1C1C1E]">Text font</p>
+        <p className="mt-1 text-sm text-[#8E8E93]">
+          Choose how typed text looks in inputs and text areas across PromptFix.
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {fontOptions.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setFontId(f.id)}
+              className={[
+                "min-h-[44px] rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition",
+                fontId === f.id
+                  ? "border-[#3B82F6] bg-blue-50 text-[#1D4ED8]"
+                  : "border-[#D1D1D6] bg-white/90 text-[#1C1C1E] hover:bg-[#F8F8FA]",
+              ].join(" ")}
+              style={{ fontFamily: f.cssFamily }}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <form onSubmit={onChangePassword} className="space-y-3 rounded-2xl border border-[#E5E5EA] bg-white/75 p-5 backdrop-blur-xl">
         <p className="text-sm font-semibold text-[#1C1C1E]">Change Password</p>
         <input
@@ -156,6 +244,58 @@ export const SettingsPage = () => {
           {busy === "signout" ? "Signing out..." : "Sign Out From All Devices"}
         </button>
       </div>
+
+      {sttSupported && (
+        <div className="space-y-4 rounded-2xl border border-[#E5E5EA] bg-white/75 p-5 backdrop-blur-xl">
+          <p className="text-sm font-semibold text-[#1C1C1E]">Speech to Text</p>
+
+          {/* Language selector */}
+          <div className="space-y-1.5">
+            <label className="text-sm text-[#636366]" htmlFor="stt-lang-select">
+              Recognition Language
+            </label>
+            <select
+              id="stt-lang-select"
+              value={sttLanguage}
+              onChange={(e) => void saveSttLanguage(e.target.value)}
+              className="w-full rounded-2xl border border-[#D1D1D6] bg-white px-4 py-3 text-sm text-[#1C1C1E] outline-none focus:border-[#3B82F6]"
+            >
+              {STT_LANGUAGES.map((lang) => (
+                <option key={lang.value} value={lang.value}>
+                  {lang.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Auto-improve toggle */}
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-[#1C1C1E]">Auto-improve after speaking</p>
+              <p className="mt-0.5 text-xs text-[#8E8E93]">
+                Automatically tap Improve when you stop speaking
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={sttAutoImprove}
+              onClick={() => void saveSttAutoImprove(!sttAutoImprove)}
+              className={[
+                "relative mt-0.5 inline-flex h-[30px] w-[52px] shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none",
+                sttAutoImprove ? "bg-[#3B82F6]" : "bg-[#D1D1D6]",
+              ].join(" ")}
+            >
+              <span
+                className={[
+                  "pointer-events-none inline-block h-[22px] w-[22px] translate-y-[-1px] rounded-full bg-white shadow-sm ring-0 transition-transform duration-200",
+                  sttAutoImprove ? "translate-x-[24px]" : "translate-x-[1px]",
+                ].join(" ")}
+              />
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-3 rounded-2xl border border-rose-200 bg-rose-50/70 p-5 backdrop-blur-xl">
         <p className="text-sm font-semibold text-rose-700">Danger Zone</p>

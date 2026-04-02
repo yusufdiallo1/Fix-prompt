@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect, type CSSProperties } from "react";
 import { useScrollReveal } from "../hooks/useScrollReveal";
 
 // ─── Grain texture SVG (inline) ───────────────────────────────────────────────
@@ -39,16 +39,10 @@ function Navbar() {
         borderBottom: scrolled ? "1px solid rgba(255,255,255,0.07)" : "none",
       }}
     >
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 max-[260px]:px-2.5">
+      <div className="landing-nav-enter mx-auto flex max-w-6xl items-center justify-between px-4 py-3 max-[260px]:px-2.5">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2 max-[260px]:gap-1.5">
-          <div
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold text-white max-[260px]:h-7 max-[260px]:w-7 max-[260px]:text-xs"
-            style={{ background: "linear-gradient(135deg,#3B82F6,#A78BFA)" }}
-          >
-            P
-          </div>
-          <span className="brand-wordmark text-[17px] font-bold text-white max-[260px]:hidden">PromptFix</span>
+          <span className="brand-wordmark text-[20px] font-bold text-white">Prompt Fix</span>
         </Link>
 
         {/* Desktop nav */}
@@ -146,7 +140,7 @@ function Hero() {
   const [heroSrc, setHeroSrc] = useState("/hero-improve.png");
 
   return (
-    <section className="relative reveal-visible overflow-hidden px-6 pb-16 pt-28" style={{ background: "#0f172a" }}>
+    <section className="relative overflow-hidden px-6 pb-16 pt-28" style={{ background: "#0f172a" }}>
       <div
         className="pointer-events-none absolute left-1/3 top-1/3 z-[1] h-[560px] w-[560px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-20 blur-[120px]"
         style={{ background: "radial-gradient(circle,#3B82F6 0%,transparent 70%)" }}
@@ -159,18 +153,24 @@ function Hero() {
       <div className="relative z-[2] mx-auto grid w-full max-w-6xl items-center gap-10 lg:grid-cols-[1.05fr_0.95fr]">
         <div className="text-center lg:text-left">
           <div
-            className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-1.5 text-[13px] font-medium text-[#94A3B8]"
-            style={{
-              background: "rgba(255,255,255,0.05)",
-              backdropFilter: "blur(12px)",
-              WebkitBackdropFilter: "blur(12px)",
-            }}
+            className="reveal-child mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-1.5 text-[13px] font-medium text-[#94A3B8]"
+            style={
+              {
+                "--reveal-delay": "0ms",
+                background: "rgba(255,255,255,0.05)",
+                backdropFilter: "blur(12px)",
+                WebkitBackdropFilter: "blur(12px)",
+              } as CSSProperties
+            }
           >
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#34D399]" />
             Stop guessing. Start shipping better AI outputs.
           </div>
 
-          <h1 className="font-syne mb-6 text-balance-soft text-4xl font-bold text-white sm:text-5xl lg:text-[64px]">
+          <h1
+            className="reveal-child font-syne mb-6 text-balance-soft text-4xl font-bold text-white sm:text-5xl lg:text-[64px]"
+            style={{ "--reveal-delay": "90ms" } as CSSProperties}
+          >
             Turn rough ideas into prompts that
             <br />
             <span
@@ -181,12 +181,18 @@ function Hero() {
             </span>
           </h1>
 
-          <p className="font-dm mb-10 max-w-xl text-[16px] leading-relaxed text-[#94A3B8] sm:text-[18px] lg:mx-0">
-            PromptFix rewrites vague prompts into clear, high-converting instructions for ChatGPT, Claude,
+          <p
+            className="reveal-child font-dm mb-10 max-w-xl text-[16px] leading-relaxed text-[#94A3B8] sm:text-[18px] lg:mx-0"
+            style={{ "--reveal-delay": "170ms" } as CSSProperties}
+          >
+            Prompt Fix rewrites vague prompts into clear, high-converting instructions for ChatGPT, Claude,
             Cursor, and more. Save time, avoid bad outputs, and get to the finish line faster.
           </p>
 
-          <div className="mb-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
+          <div
+            className="reveal-child mb-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start"
+            style={{ "--reveal-delay": "250ms" } as CSSProperties}
+          >
             <Link
               to="/signup"
               className="rounded-full px-8 py-3.5 text-[15px] font-semibold text-white shadow-[0_4px_24px_rgba(59,130,246,0.4)] transition hover:opacity-90 active:scale-[0.97]"
@@ -204,12 +210,15 @@ function Hero() {
         </div>
 
         <div
-          className="rounded-3xl border border-white/15 p-3 shadow-[0_18px_45px_rgba(3,7,18,0.45)]"
-          style={{
-            background: "rgba(15,23,42,0.68)",
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
-          }}
+          className="reveal-child rounded-3xl border border-white/15 p-3 shadow-[0_18px_45px_rgba(3,7,18,0.45)]"
+          style={
+            {
+              "--reveal-delay": "140ms",
+              background: "rgba(15,23,42,0.68)",
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
+            } as CSSProperties
+          }
         >
           <img
             src={heroSrc}
@@ -218,12 +227,12 @@ function Hero() {
                 "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?auto=format&fit=crop&w=1200&q=80",
               )
             }
-            alt="PromptFix Improve screen preview"
+            alt="Prompt Fix Improve screen preview"
             className="h-auto w-full rounded-2xl border border-white/10 object-cover"
             draggable="false"
           />
           <p className="px-2 pb-1 pt-3 text-center text-xs font-medium text-[#94A3B8]">
-            Real PromptFix workspace preview
+            Real Prompt Fix workspace preview
           </p>
         </div>
       </div>
@@ -233,8 +242,12 @@ function Hero() {
           { value: "50K+", label: "Prompts improved" },
           { value: "3x", label: "Faster iteration" },
           { value: "10+", label: "AI platforms supported" },
-        ].map((stat) => (
-          <div key={stat.label} className="text-center">
+        ].map((stat, i) => (
+          <div
+            key={stat.label}
+            className="reveal-child text-center"
+            style={{ "--reveal-delay": `${320 + i * 80}ms` } as CSSProperties}
+          >
             <p className="font-syne text-2xl font-bold text-white">{stat.value}</p>
             <p className="text-[12px] text-[#64748B]">{stat.label}</p>
           </div>
@@ -255,18 +268,29 @@ function TrustStrip() {
   return (
     <section className="border-y border-white/5 bg-[#0f172a] px-6 py-16">
       <div className="mx-auto max-w-4xl text-center">
-        <p className="font-syne mb-3 text-xl font-bold text-white sm:text-2xl">
+        <p
+          className="reveal-child font-syne mb-3 text-xl font-bold text-white sm:text-2xl"
+          style={{ "--reveal-delay": "0ms" } as CSSProperties}
+        >
           Works with the AI tools you already use
         </p>
-        <p className="font-dm mb-10 text-[15px] text-[#64748B]">
+        <p
+          className="reveal-child font-dm mb-10 text-[15px] text-[#64748B]"
+          style={{ "--reveal-delay": "80ms" } as CSSProperties}
+        >
           One rewrite engine for coding, design, content, and product work. Paste once, perform better everywhere.
         </p>
         <div className="flex flex-wrap items-center justify-center gap-3">
-          {platforms.map((p) => (
+          {platforms.map((p, i) => (
             <span
               key={p}
-              className="rounded-full border border-white/10 px-4 py-1.5 text-[13px] font-medium text-[#94A3B8] transition hover:border-white/20 hover:text-white"
-              style={{ background: "rgba(255,255,255,0.04)" }}
+              className="reveal-child rounded-full border border-white/10 px-4 py-1.5 text-[13px] font-medium text-[#94A3B8] transition hover:border-white/20 hover:text-white"
+              style={
+                {
+                  "--reveal-delay": `${140 + i * 35}ms`,
+                  background: "rgba(255,255,255,0.04)",
+                } as CSSProperties
+              }
             >
               {p}
             </span>
@@ -329,27 +353,39 @@ function FeaturesGrid() {
     <section id="features" className="bg-[#0f172a] px-6 py-24">
       <div className="mx-auto max-w-5xl">
         <div className="mb-14 text-center">
-          <p className="font-dm mb-3 text-[13px] font-semibold uppercase tracking-widest text-[#3B82F6]">
+          <p
+            className="reveal-child font-dm mb-3 text-[13px] font-semibold uppercase tracking-widest text-[#3B82F6]"
+            style={{ "--reveal-delay": "0ms" } as CSSProperties}
+          >
             Features
           </p>
-          <h2 className="font-syne mb-4 text-3xl font-bold text-white sm:text-4xl">
+          <h2
+            className="reveal-child font-syne mb-4 text-3xl font-bold text-white sm:text-4xl"
+            style={{ "--reveal-delay": "70ms" } as CSSProperties}
+          >
             Everything you need to prompt like a pro
           </h2>
-          <p className="font-dm mx-auto max-w-xl text-[16px] text-[#64748B]">
+          <p
+            className="reveal-child font-dm mx-auto max-w-xl text-[16px] text-[#64748B]"
+            style={{ "--reveal-delay": "140ms" } as CSSProperties}
+          >
             Cut rework, reduce failed outputs, and create stronger prompts in seconds.
           </p>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {features.map((f) => (
+          {features.map((f, i) => (
             <div
               key={f.title}
-              className="rounded-2xl border border-white/[0.07] p-6 transition-all duration-200 hover:border-white/15 hover-lift-soft"
-              style={{
-                background: "rgba(30,41,59,0.6)",
-                backdropFilter: "blur(12px)",
-                WebkitBackdropFilter: "blur(12px)",
-              }}
+              className="reveal-child rounded-2xl border border-white/[0.07] p-6 transition-all duration-200 hover:border-white/15 hover-lift-soft"
+              style={
+                {
+                  "--reveal-delay": `${200 + i * 55}ms`,
+                  background: "rgba(30,41,59,0.6)",
+                  backdropFilter: "blur(12px)",
+                  WebkitBackdropFilter: "blur(12px)",
+                } as CSSProperties
+              }
             >
               <div
                 className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl text-lg"
@@ -397,25 +433,39 @@ function UseCases() {
     <section id="use-cases" className="bg-[#080f1e] px-6 py-24">
       <div className="mx-auto max-w-5xl">
         <div className="mb-14 text-center">
-          <p className="font-dm mb-3 text-[13px] font-semibold uppercase tracking-widest text-[#A78BFA]">
+          <p
+            className="reveal-child font-dm mb-3 text-[13px] font-semibold uppercase tracking-widest text-[#A78BFA]"
+            style={{ "--reveal-delay": "0ms" } as CSSProperties}
+          >
             Use Cases
           </p>
-          <h2 className="font-syne mb-4 text-3xl font-bold text-white sm:text-4xl">
+          <h2
+            className="reveal-child font-syne mb-4 text-3xl font-bold text-white sm:text-4xl"
+            style={{ "--reveal-delay": "70ms" } as CSSProperties}
+          >
             Built for how modern teams actually ship
           </h2>
-          <p className="font-dm mx-auto max-w-xl text-[16px] text-[#64748B]">
-            From quick prototypes to production releases, PromptFix helps you move with confidence.
+          <p
+            className="reveal-child font-dm mx-auto max-w-xl text-[16px] text-[#64748B]"
+            style={{ "--reveal-delay": "140ms" } as CSSProperties}
+          >
+            From quick prototypes to production releases, Prompt Fix helps you move with confidence.
           </p>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
           {/* Cards */}
           <div className="grid gap-4 sm:grid-cols-2">
-            {cases.map((c) => (
+            {cases.map((c, i) => (
               <div
                 key={c.num}
-              className="rounded-2xl border border-white/[0.07] p-6 hover-lift-soft"
-                style={{ background: "rgba(30,41,59,0.5)" }}
+                className="reveal-child rounded-2xl border border-white/[0.07] p-6 hover-lift-soft"
+                style={
+                  {
+                    "--reveal-delay": `${180 + i * 70}ms`,
+                    background: "rgba(30,41,59,0.5)",
+                  } as CSSProperties
+                }
               >
                 <p
                   className="font-syne mb-3 text-3xl font-extrabold"
@@ -431,14 +481,17 @@ function UseCases() {
 
           {/* Image */}
           <div
-            className="hidden overflow-hidden rounded-2xl border border-white/[0.07] lg:block"
-            style={{
-              backgroundImage:
-                "url(https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=800&q=80)",
-              backgroundSize: "cover",
-              backgroundPosition: "center",
-              minHeight: "360px",
-            }}
+            className="reveal-child hidden overflow-hidden rounded-2xl border border-white/[0.07] lg:block"
+            style={
+              {
+                "--reveal-delay": "260ms",
+                backgroundImage:
+                  "url(https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=800&q=80)",
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                minHeight: "360px",
+              } as CSSProperties
+            }
           >
             <div className="h-full w-full" style={{ background: "rgba(8,15,30,0.45)" }} />
           </div>
@@ -498,25 +551,38 @@ function HowItWorks() {
     <section id="how-it-works" className="bg-[#0f172a] px-6 py-24">
       <div className="mx-auto max-w-5xl">
         <div className="mb-14 text-center">
-          <p className="font-dm mb-3 text-[13px] font-semibold uppercase tracking-widest text-[#34D399]">
+          <p
+            className="reveal-child font-dm mb-3 text-[13px] font-semibold uppercase tracking-widest text-[#34D399]"
+            style={{ "--reveal-delay": "0ms" } as CSSProperties}
+          >
             How It Works
           </p>
-          <h2 className="font-syne mb-4 text-3xl font-bold text-white sm:text-4xl">
+          <h2
+            className="reveal-child font-syne mb-4 text-3xl font-bold text-white sm:text-4xl"
+            style={{ "--reveal-delay": "70ms" } as CSSProperties}
+          >
             From messy draft to high-performing prompt in four steps
           </h2>
-          <p className="font-dm mx-auto max-w-xl text-[16px] text-[#64748B]">
-            No prompt-engineering background required. Paste what you have and let PromptFix do the heavy lifting.
+          <p
+            className="reveal-child font-dm mx-auto max-w-xl text-[16px] text-[#64748B]"
+            style={{ "--reveal-delay": "140ms" } as CSSProperties}
+          >
+            No prompt-engineering background required. Paste what you have and let Prompt Fix do the heavy lifting.
           </p>
         </div>
 
         {/* Step flow */}
         <div
-          className="mb-10 rounded-2xl border border-white/[0.07] p-6 sm:p-8"
-          style={{ background: "rgba(30,41,59,0.5)" }}
+          className="reveal-child mb-10 rounded-2xl border border-white/[0.07] p-6 sm:p-8"
+          style={{ "--reveal-delay": "180ms", background: "rgba(30,41,59,0.5)" } as CSSProperties}
         >
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {steps.map((step, i) => (
-              <div key={step.num} className="relative">
+              <div
+                key={step.num}
+                className="reveal-child relative"
+                style={{ "--reveal-delay": `${220 + i * 70}ms` } as CSSProperties}
+              >
                 {i < steps.length - 1 && (
                   <div className="absolute right-0 top-5 hidden h-px w-full translate-x-1/2 bg-white/10 lg:block" />
                 )}
@@ -534,7 +600,10 @@ function HowItWorks() {
         </div>
 
         {/* Tab strip */}
-        <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div
+          className="reveal-child flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          style={{ "--reveal-delay": "480ms" } as CSSProperties}
+        >
           {tabs.map((tab, i) => (
             <button
               key={tab.label}
@@ -553,8 +622,8 @@ function HowItWorks() {
         </div>
 
         <div
-          className="mt-4 rounded-2xl border border-white/[0.07] p-6"
-          style={{ background: "rgba(30,41,59,0.5)" }}
+          className="reveal-child mt-4 rounded-2xl border border-white/[0.07] p-6"
+          style={{ "--reveal-delay": "540ms", background: "rgba(30,41,59,0.5)" } as CSSProperties}
         >
           <p className="font-dm text-[15px] leading-relaxed text-[#94A3B8]">
             {tabs[activeTab].preview}
@@ -631,31 +700,43 @@ function PricingSection() {
     <section id="pricing" className="bg-[#050b18] px-6 py-24">
       <div className="mx-auto max-w-5xl">
         <div className="mb-14 text-center">
-          <p className="font-dm mb-3 text-[13px] font-semibold uppercase tracking-widest text-[#F472B6]">
+          <p
+            className="reveal-child font-dm mb-3 text-[13px] font-semibold uppercase tracking-widest text-[#F472B6]"
+            style={{ "--reveal-delay": "0ms" } as CSSProperties}
+          >
             Pricing
           </p>
-          <h2 className="font-syne mb-4 text-3xl font-bold text-white sm:text-4xl">
+          <h2
+            className="reveal-child font-syne mb-4 text-3xl font-bold text-white sm:text-4xl"
+            style={{ "--reveal-delay": "70ms" } as CSSProperties}
+          >
             Choose your plan and ship faster
           </h2>
-          <p className="font-dm mx-auto max-w-xl text-[16px] text-[#64748B]">
-            Start free in seconds, then upgrade when PromptFix becomes part of your daily workflow.
+          <p
+            className="reveal-child font-dm mx-auto max-w-xl text-[16px] text-[#64748B]"
+            style={{ "--reveal-delay": "140ms" } as CSSProperties}
+          >
+            Start free in seconds, then upgrade when Prompt Fix becomes part of your daily workflow.
           </p>
         </div>
 
         <div className="grid gap-6 md:grid-cols-3">
-          {plans.map((plan) => (
+          {plans.map((plan, i) => (
             <div
               key={plan.name}
-              className="relative mx-auto flex min-h-[560px] w-full max-w-[360px] flex-col rounded-3xl border p-6 hover-lift-soft md:min-h-[620px]"
-              style={{
-                background: "linear-gradient(180deg, rgba(9,14,29,0.96), rgba(8,13,26,0.92))",
-                borderColor: plan.highlight
-                  ? "rgba(255,255,255,0.28)"
-                  : "rgba(255,255,255,0.09)",
-                boxShadow: plan.highlight
-                  ? "0 0 0 1px rgba(255,255,255,0.18), 0 20px 46px rgba(0,0,0,0.42)"
-                  : "0 12px 34px rgba(0,0,0,0.28)",
-              }}
+              className="reveal-child relative mx-auto flex min-h-[560px] w-full max-w-[360px] flex-col rounded-3xl border p-6 hover-lift-soft md:min-h-[620px]"
+              style={
+                {
+                  "--reveal-delay": `${200 + i * 90}ms`,
+                  background: "linear-gradient(180deg, rgba(9,14,29,0.96), rgba(8,13,26,0.92))",
+                  borderColor: plan.highlight
+                    ? "rgba(255,255,255,0.28)"
+                    : "rgba(255,255,255,0.09)",
+                  boxShadow: plan.highlight
+                    ? "0 0 0 1px rgba(255,255,255,0.18), 0 20px 46px rgba(0,0,0,0.42)"
+                    : "0 12px 34px rgba(0,0,0,0.28)",
+                } as CSSProperties
+              }
             >
               {plan.highlight && (
                 <div
@@ -753,16 +834,27 @@ function FooterCTA() {
       </div>
 
       <div className="relative z-[1] mx-auto max-w-2xl text-center">
-        <h2 className="font-syne mb-4 text-3xl font-extrabold text-white sm:text-4xl lg:text-5xl">
+        <h2
+          className="reveal-child font-syne mb-4 text-3xl font-extrabold text-white sm:text-4xl lg:text-5xl"
+          style={{ "--reveal-delay": "0ms" } as CSSProperties}
+        >
           Better prompts. Better outputs. Faster shipping.
         </h2>
-        <p className="font-dm mb-10 text-[16px] text-[#64748B]">
+        <p
+          className="reveal-child font-dm mb-10 text-[16px] text-[#64748B]"
+          style={{ "--reveal-delay": "90ms" } as CSSProperties}
+        >
           Start free and turn every rough prompt into high-quality results.
         </p>
         <Link
           to="/signup"
-          className="inline-block rounded-full px-10 py-4 text-[16px] font-bold text-white shadow-[0_4px_32px_rgba(59,130,246,0.45)] transition hover:opacity-90 active:scale-[0.97]"
-          style={{ background: "linear-gradient(135deg,#3B82F6,#6366F1)" }}
+          className="reveal-child inline-block rounded-full px-10 py-4 text-[16px] font-bold text-white shadow-[0_4px_32px_rgba(59,130,246,0.45)] transition hover:opacity-90 active:scale-[0.97]"
+          style={
+            {
+              "--reveal-delay": "180ms",
+              background: "linear-gradient(135deg,#3B82F6,#6366F1)",
+            } as CSSProperties
+          }
         >
           Start improving prompts →
         </Link>
@@ -790,14 +882,14 @@ function Footer() {
         <div className="mb-8 rounded-2xl border border-emerald-400/20 bg-emerald-500/[0.08] p-5 sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-[16px] font-bold text-white">Need help with <span className="brand-wordmark">PromptFix</span>?</p>
+              <p className="text-[16px] font-bold text-white">Need help with <span className="brand-wordmark">Prompt Fix</span>?</p>
               <p className="font-dm mt-1 text-[13px] text-[#94A3B8]">
                 Reply within 24 hours. Tell us your use case and we will help you get better outputs fast.
               </p>
             </div>
             <div className="flex flex-wrap gap-2.5">
               <a
-                href={`mailto:${supportEmail}?subject=PromptFix%20Support`}
+                href={`mailto:${supportEmail}?subject=Prompt%20Fix%20Support`}
                 className="rounded-full bg-gradient-to-r from-[#34D399] to-[#10B981] px-4 py-2 text-[13px] font-semibold text-white shadow-[0_8px_24px_rgba(16,185,129,0.25)] transition hover:brightness-105"
               >
                 Email Support
@@ -824,7 +916,7 @@ function Footer() {
               >
                 P
               </div>
-              <span className="brand-wordmark text-[15px] font-bold text-white">PromptFix</span>
+              <span className="brand-wordmark text-[15px] font-bold text-white">Prompt Fix</span>
             </div>
             <p className="font-dm text-[13px] leading-relaxed text-[#475569]">
               AI-powered prompt improvement for developers and builders.
@@ -909,7 +1001,7 @@ function Footer() {
         {/* Bottom bar */}
         <div className="flex flex-col items-center justify-between gap-4 border-t border-white/[0.06] pt-8 sm:flex-row">
           <p className="font-dm text-[12px] text-[#475569]">
-            © 2025 PromptFix. All rights reserved.
+            © 2025 Prompt Fix. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
             <a href="https://promptfix.ai/privacy" className="font-dm text-[12px] text-[#475569] transition hover:text-white">

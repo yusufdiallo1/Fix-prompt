@@ -2,10 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --app-font-family: "DM Sans", system-ui, sans-serif;
+}
+
 body {
   @apply m-0 min-h-screen text-[#1C1C1E] antialiased;
   background: #f5f5f7;
   transition: background-color 220ms ease, color 220ms ease;
+}
+
+/* Typing surfaces use the font chosen in Settings */
+#root textarea,
+#root input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="image"]):not([type="range"]):not([type="hidden"]),
+#root select {
+  font-family: var(--app-font-family);
+}
+
+#root textarea {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+#root textarea::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Hide scrollbars but keep scrolling (overflow-y: auto on element) */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 html {
@@ -147,6 +179,7 @@ html.dark .shadow-\[0_10px_24px_rgba\(28\2c 28\2c 30\2c 0\.14\)\] {
   padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px) + 0.5rem);
   padding-left: 1.25rem;
   padding-right: 1.25rem;
+  overflow-x: hidden;
 }
 
 /* Tablet (768px to 1023px): keep bottom tab bar like mobile */
@@ -254,9 +287,10 @@ html.dark .shadow-\[0_10px_24px_rgba\(28\2c 28\2c 30\2c 0\.14\)\] {
 }
 
 .brand-wordmark {
-  font-family: "Syne", Inter, system-ui, -apple-system, sans-serif;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-family: "Cormorant Garamond", "DM Sans", Georgia, serif;
+  font-style: italic;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .reveal-on-scroll {
@@ -306,14 +340,93 @@ html.dark .shadow-\[0_10px_24px_rgba\(28\2c 28\2c 30\2c 0\.14\)\] {
 }
 
 .landing-reveal {
+  opacity: 1;
+  transform: none;
+}
+
+.landing-reveal.reveal-on-scroll {
   opacity: 0;
   transform: translateY(22px);
   transition: opacity 600ms ease-out, transform 600ms ease-out;
 }
 
+.landing-reveal.reveal-visible,
 .landing-reveal.visible {
   opacity: 1;
   transform: translateY(0);
+}
+
+/* Staggered children animate after section enters view (parent must be .reveal-visible) */
+.landing-reveal .reveal-child {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1) var(--reveal-delay, 0ms),
+    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1) var(--reveal-delay, 0ms);
+}
+
+.landing-reveal.reveal-visible .reveal-child {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* App shell: same fail-open + scroll-in pattern as landing */
+.app-section-reveal {
+  opacity: 1;
+  transform: none;
+}
+
+.app-section-reveal.reveal-on-scroll {
+  opacity: 0;
+  transform: translateY(20px);
+  transition:
+    opacity 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.app-section-reveal.reveal-visible,
+.app-section-reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@keyframes landing-nav-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.landing-nav-enter {
+  animation: landing-nav-enter 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes bottom-sheet-enter {
+  from {
+    opacity: 0.7;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bottom-sheet-backdrop-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.bottom-sheet-enter {
+  animation: bottom-sheet-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.bottom-sheet-backdrop-enter {
+  animation: bottom-sheet-backdrop-enter 180ms ease-out both;
 }
 
 /* Desktop (lg = 1024px): push content below the 64px top navbar */
@@ -537,6 +650,7 @@ html.dark .quick-action-cta {
   .animate-in-soft,
   .animate-in-up,
   .reveal-on-scroll,
+  .landing-nav-enter,
   .mobile-slide-in-right,
   .mobile-slide-in-left,
   .auth-enter,
@@ -551,6 +665,14 @@ html.dark .quick-action-cta {
     animation: none !important;
     transform: none !important;
     opacity: 1 !important;
+    transition: none !important;
+  }
+
+  .landing-reveal .reveal-child,
+  .landing-reveal.reveal-on-scroll,
+  .app-section-reveal.reveal-on-scroll {
+    opacity: 1 !important;
+    transform: none !important;
     transition: none !important;
   }
 }
@@ -754,4 +876,67 @@ html.dark .quick-action-cta {
   .reimprove-btn:hover::after {
     opacity: 1;
   }
+}
+
+/* ─── Speech-to-Text animations ─────────────────────────────────────────── */
+
+/* Pulsing ring around the mic button while listening */
+@keyframes stt-pulse {
+  0% {
+    opacity: 0.75;
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.3);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.65);
+    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+  }
+}
+
+.stt-pulse-ring::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(239, 68, 68, 0.3);
+  animation: stt-pulse 1.2s ease-out infinite;
+}
+
+/* Animated sound-wave bars inside the listening banner */
+@keyframes stt-wave-bar {
+  0%, 100% { transform: scaleY(0.45); }
+  50%       { transform: scaleY(1); }
+}
+
+.stt-wave-bar-1 {
+  transform-origin: bottom;
+  animation: stt-wave-bar 0.9s ease-in-out infinite;
+  animation-delay: 0s;
+}
+.stt-wave-bar-2 {
+  transform-origin: bottom;
+  animation: stt-wave-bar 0.9s ease-in-out infinite;
+  animation-delay: 0.15s;
+}
+.stt-wave-bar-3 {
+  transform-origin: bottom;
+  animation: stt-wave-bar 0.9s ease-in-out infinite;
+  animation-delay: 0.3s;
+}
+
+/* Banner slide-down entrance */
+@keyframes stt-banner-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.stt-banner-enter {
+  animation: stt-banner-slide-in 250ms ease both;
 }

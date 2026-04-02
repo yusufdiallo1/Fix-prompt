@@ -70,17 +70,27 @@ export const getCurrentMonthUsage = async (userId: string) => {
   if (!supabase) return 0;
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
-  const { count, error } = await supabase
+  const { count: promptCount, error: promptError } = await supabase
     .from("prompt_sessions")
     .select("*", { count: "exact", head: true })
     .eq("user_id", userId)
     .gte("created_at", monthStart);
 
-  if (error) {
-    console.error("Failed to fetch monthly usage", error);
-    return 0;
+  if (promptError) {
+    console.error("Failed to fetch monthly prompt usage", promptError);
   }
-  return count ?? 0;
+
+  const { count: codeCount, error: codeError } = await supabase
+    .from("code_sessions")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("created_at", monthStart);
+
+  if (codeError) {
+    console.error("Failed to fetch monthly code session usage", codeError);
+  }
+
+  return (promptCount ?? 0) + (codeError ? 0 : (codeCount ?? 0));
 };
 
 export const getUserPlanProfile = async (userId: string): Promise<PlanProfile | null> => {

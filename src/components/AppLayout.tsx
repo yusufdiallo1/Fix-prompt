@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
+import { useScrollReveal } from "../hooks/useScrollReveal";
 import { DesktopNavbar } from "./DesktopNavbar";
 import { MobileTabBar } from "./MobileTabBar";
 import { MobileHeader } from "./MobileHeader";
@@ -7,11 +8,12 @@ import { QuickImproveFab } from "./QuickImproveFab";
 
 export const AppLayout = () => {
   const location = useLocation();
+  useScrollReveal(".app-section-reveal", location.pathname);
   const [showDone, setShowDone] = useState(false);
   const [slideClass, setSlideClass] = useState("mobile-slide-in-right");
   const prevPathRef = useRef(location.pathname);
   const tabOrder = useMemo(
-    () => ["/dashboard", "/improve", "/debug", "/saved", "/history"],
+    () => ["/dashboard", "/improve", "/debug", "/history", "/settings"],
     [],
   );
 
@@ -62,7 +64,7 @@ export const AppLayout = () => {
 
       {/* Scrollable content area — padding shifts content clear of each nav type */}
       <div className="page-content-wrapper">
-        <main className={`mx-auto w-full max-w-6xl ${slideClass}`}>
+        <main className={`mx-auto min-w-0 w-full max-w-6xl overflow-x-hidden ${slideClass}`}>
           <Outlet />
         </main>
       </div>

@@ -51,27 +51,39 @@ export interface PromptSession {
   updated_at: string;
 }
 
-export interface DebugSession {
+export interface CodeSession {
   id: string;
   user_id: string;
-  prompt_session_id: string | null;
-  original_prompt: string | null;
-  broken_code: string | null;
-  error_message: string | null;
+  title: string;
+  original_code: string;
+  error_description: string | null;
+  language_detected: string | null;
   platform: string | null;
-  root_cause: string | null;
-  diagnosis_summary: string | null;
-  specific_issues: string | null;
-  fix_prompt: string | null;
-  key_changes: string | null;
-  platform_tips: string | null;
+  fixed_code: string | null;
+  fix_explanation: string | null;
+  alternative_one_code: string | null;
+  alternative_one_label: string | null;
+  alternative_one_explanation: string | null;
+  alternative_two_code: string | null;
+  alternative_two_label: string | null;
+  alternative_two_explanation: string | null;
+  alternative_three_code: string | null;
+  alternative_three_label: string | null;
+  alternative_three_explanation: string | null;
+  score_readability_before: number | null;
+  score_readability_after: number | null;
+  score_efficiency_before: number | null;
+  score_efficiency_after: number | null;
+  score_structure_before: number | null;
+  score_structure_after: number | null;
+  overall_score_before: number | null;
+  overall_score_after: number | null;
+  bugs_found: string | null;
+  key_fixes: string | null;
   prevention_tips: string | null;
-  confidence_score: number | null;
-  framework_detected: string | null;
-  error_type: string | null;
   complexity_level: string | null;
-  raw_response: string | null;
   status: string | null;
+  raw_response: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -79,7 +91,9 @@ export interface DebugSession {
 export interface SavedPrompt {
   id: string;
   user_id: string;
-  session_id: string;
+  session_id: string | null;
+  code_session_id: string | null;
+  saved_type: string;
   prompt_text: string;
   prompt_type: string | null;
   label: string | null;
@@ -103,6 +117,8 @@ export interface UserStats {
   last_session_date: string | null;
   streak_updated_at: string | null;
   last_active: string | null;
+  stt_language: string | null;
+  stt_auto_improve: boolean | null;
   created_at: string;
   updated_at: string;
 }

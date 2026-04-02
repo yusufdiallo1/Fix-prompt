@@ -9,13 +9,13 @@ import { BottomSheet } from "./BottomSheet";
 const getTitle = (pathname: string) => {
   if (pathname === "/dashboard") return "Home";
   if (pathname.startsWith("/improve")) return "Improve";
-  if (pathname.startsWith("/debug")) return "Debug";
+  if (pathname.startsWith("/debug")) return "Fix My Code";
   if (pathname.startsWith("/saved")) return "Saved";
   if (pathname.startsWith("/history")) return "History";
   if (pathname.startsWith("/profile")) return "Profile";
   if (pathname.startsWith("/settings")) return "Settings";
   if (pathname.startsWith("/sessions")) return "Session";
-  return "PromptFix";
+  return "Prompt Fix";
 };
 
 export const MobileHeader = () => {
@@ -56,17 +56,6 @@ export const MobileHeader = () => {
                 Pro
               </span>
             )}
-            <button
-              type="button"
-              onClick={() => navigate("/settings")}
-              aria-label="Open settings"
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-[#D1D1D6] bg-white/90 text-[#636366]"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-4 w-4">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317a1.724 1.724 0 013.35 0 1.724 1.724 0 002.573 1.066 1.724 1.724 0 012.356.998 1.724 1.724 0 001.314 2.223 1.724 1.724 0 010 3.292 1.724 1.724 0 00-1.314 2.223 1.724 1.724 0 01-2.356.998 1.724 1.724 0 00-2.573 1.066 1.724 1.724 0 01-3.35 0 1.724 1.724 0 00-2.573-1.066 1.724 1.724 0 01-2.356-.998 1.724 1.724 0 00-1.314-2.223 1.724 1.724 0 010-3.292 1.724 1.724 0 001.314-2.223 1.724 1.724 0 012.356-.998 1.724 1.724 0 002.573-1.066z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 15.75A3.75 3.75 0 1012 8.25a3.75 3.75 0 000 7.5z" />
-              </svg>
-            </button>
             <button
               type="button"
               onClick={() => setSheetOpen(true)}
@@ -110,7 +99,7 @@ export const MobileHeader = () => {
               Upgrade to Pro ({usageLoading ? "..." : `${remainingCount} left`})
             </button>
           ) : (
-            <p className="px-4 py-2 text-sm font-semibold text-emerald-700">Pro plan active • Unlimited prompts/debug</p>
+            <p className="px-4 py-2 text-sm font-semibold text-emerald-700">Pro plan active • Unlimited sessions</p>
           )}
           <button
             type="button"

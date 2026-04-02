@@ -21,9 +21,12 @@ function LoadingSpinner() {
 }
 
 export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
-  const { loading, session } = useAuth();
+  const { loading, session, bootstrapError } = useAuth();
 
   if (loading) return <LoadingSpinner />;
+  if (bootstrapError && !session) {
+    return <Navigate to="/login" replace />;
+  }
   if (!session) return <Navigate to="/login" replace />;
 
   return <>{children}</>;

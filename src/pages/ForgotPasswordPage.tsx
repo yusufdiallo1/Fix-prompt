@@ -66,7 +66,7 @@ export const ForgotPasswordPage = () => {
             <h2 className="text-[20px] font-bold tracking-[-0.015em] text-[#1C1C1E]">
               Check your inbox
             </h2>
-            <p className="mt-2 text-sm leading-relaxed text-[#636366]">
+            <p className="mt-2 text-sm leading-relaxed text-[#1C1C1E]">
               We sent a password reset link to{" "}
               <span className="font-medium text-[#1C1C1E]">{email}</span>.
               It may take a minute to arrive.
@@ -88,7 +88,7 @@ export const ForgotPasswordPage = () => {
             <h2 className="text-[20px] font-bold tracking-[-0.015em] text-[#1C1C1E]">
               Reset your password
             </h2>
-            <p className="mt-1 text-sm leading-relaxed text-[#636366]">
+            <p className="mt-1 text-sm leading-relaxed text-[#1C1C1E]">
               Enter your email and we'll send you a link to reset your password.
             </p>
 
@@ -124,7 +124,7 @@ export const ForgotPasswordPage = () => {
       </div>
 
       {/* Footer link */}
-      <p className="mt-5 text-center text-sm text-[#636366]">
+      <p className="mt-5 text-center text-sm text-[#1C1C1E]">
         <Link to="/login" className="auth-link">
           ← Back to login
         </Link>

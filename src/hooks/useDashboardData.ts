@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "./useAuth";
-import type { PromptSession, UserStats } from "../types/database";
+import type { CodeSession, PromptSession, UserStats } from "../types/database";
+
+export type RecentSessionItem =
+  | { kind: "improve"; session: PromptSession }
+  | { kind: "fix"; session: CodeSession };
 
 export interface DashboardStats {
   totalSessions: number;
@@ -18,7 +22,7 @@ export interface DashboardStats {
 
 export interface DashboardData {
   stats: DashboardStats;
-  recentSessions: PromptSession[];
+  recentSessions: RecentSessionItem[];
   loading: boolean;
   error: string | null;
   refetch: () => void;
@@ -40,11 +44,10 @@ const toLocalDateString = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
-function computeStreaksFromSessions(sessions: PromptSession[]) {
+function computeStreaksFromSessions(isoDates: string[]) {
   const uniqueDays = Array.from(
     new Set(
-      sessions
-        .map((s) => s.created_at)
+      isoDates
         .filter(Boolean)
         .map((iso) => toLocalDateString(new Date(iso))),
     ),
@@ -84,6 +87,7 @@ export const useDashboardData = (): DashboardData => {
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const [sessions, setSessions] = useState<PromptSession[]>([]);
+  const [codeSessions, setCodeSessions] = useState<CodeSession[]>([]);
   const [userStats, setUserStats] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -95,12 +99,14 @@ export const useDashboardData = (): DashboardData => {
     if (!supabase) {
       setError("Supabase is not configured.");
       setSessions([]);
+      setCodeSessions([]);
       setUserStats(null);
       setLoading(false);
       return;
     }
     if (!userId) {
       setSessions([]);
+      setCodeSessions([]);
       setUserStats(null);
       setError(null);
       setLoading(false);
@@ -113,9 +119,14 @@ export const useDashboardData = (): DashboardData => {
 
     const run = async () => {
       try {
-        const [sessionsRes, statsRes] = await Promise.all([
+        const [sessionsRes, codeRes, statsRes] = await Promise.all([
           supabase!
             .from("prompt_sessions")
+            .select("*")
+            .eq("user_id", userId)
+            .order("created_at", { ascending: false }),
+          supabase!
+            .from("code_sessions")
             .select("*")
             .eq("user_id", userId)
             .order("created_at", { ascending: false }),
@@ -131,8 +142,13 @@ export const useDashboardData = (): DashboardData => {
         if (sessionsRes.error) {
           setError(sessionsRes.error.message);
           setSessions([]);
+          setCodeSessions([]);
           setUserStats(null);
           return;
+        }
+
+        if (codeRes.error) {
+          console.warn("code_sessions load failed", codeRes.error.message);
         }
 
         if (statsRes.error) {
@@ -140,11 +156,13 @@ export const useDashboardData = (): DashboardData => {
         }
 
         setSessions((sessionsRes.data ?? []) as PromptSession[]);
+        setCodeSessions((codeRes.data ?? []) as CodeSession[]);
         setUserStats((statsRes.data as UserStats | null) ?? null);
       } catch (fetchError) {
         if (cancelled) return;
         setError(fetchError instanceof Error ? fetchError.message : "Failed to load dashboard.");
         setSessions([]);
+        setCodeSessions([]);
         setUserStats(null);
       } finally {
         if (!cancelled) {
@@ -161,16 +179,22 @@ export const useDashboardData = (): DashboardData => {
 
   const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-  const thisWeek =
-    userStats?.sessions_this_week ??
-    sessions.filter((s) => new Date(s.created_at) >= oneWeekAgo).length;
+  const sessionWeekCount =
+    sessions.filter((s) => new Date(s.created_at) >= oneWeekAgo).length +
+    codeSessions.filter((s) => new Date(s.created_at) >= oneWeekAgo).length;
+
+  const thisWeek = userStats?.sessions_this_week ?? sessionWeekCount;
 
   const topMode =
     userStats?.most_used_mode ??
-    computeTop(sessions.map((s) => s.mode ?? s.prompt_type));
+    computeTop([
+      ...sessions.map((s) => s.mode ?? s.prompt_type),
+      ...codeSessions.map(() => "fix"),
+    ]);
 
   const favoritePlatform =
-    userStats?.favorite_platform ?? computeTop(sessions.map((s) => s.platform));
+    userStats?.favorite_platform ??
+    computeTop([...sessions.map((s) => s.platform), ...codeSessions.map((s) => s.platform)]);
 
   // Count sessions that have an improved_prompt as "prompts improved"
   const totalPromptsImproved =
@@ -178,26 +202,46 @@ export const useDashboardData = (): DashboardData => {
     sessions.filter((s) => s.improved_prompt).length;
 
   // Count total non-null alternatives across all sessions
-  const totalAlternativesGenerated =
-    userStats?.total_alternatives_generated ??
-    sessions.reduce((acc, s) => {
-      return (
-        acc +
-        (s.alternative_one ? 1 : 0) +
-        (s.alternative_two ? 1 : 0) +
-        (s.alternative_three ? 1 : 0)
-      );
-    }, 0);
+  const altFromPrompts = sessions.reduce((acc, s) => {
+    return (
+      acc +
+      (s.alternative_one ? 1 : 0) +
+      (s.alternative_two ? 1 : 0) +
+      (s.alternative_three ? 1 : 0)
+    );
+  }, 0);
+  const altFromCode = codeSessions.reduce((acc, s) => {
+    return (
+      acc +
+      (s.alternative_one_code ? 1 : 0) +
+      (s.alternative_two_code ? 1 : 0) +
+      (s.alternative_three_code ? 1 : 0)
+    );
+  }, 0);
+  const totalAlternativesGenerated = userStats?.total_alternatives_generated ?? altFromPrompts + altFromCode;
 
-  const fallbackStreak = computeStreaksFromSessions(sessions);
+  const allActivityDates = [
+    ...sessions.map((s) => s.created_at),
+    ...codeSessions.map((s) => s.created_at),
+  ];
+  const fallbackStreak = computeStreaksFromSessions(allActivityDates);
   const currentStreak = userStats?.current_streak ?? fallbackStreak.currentStreak;
   const longestStreak = userStats?.longest_streak ?? fallbackStreak.longestStreak;
   const lastSessionDate = userStats?.last_session_date ?? fallbackStreak.lastSessionDate;
   const streakUpdatedAt = userStats?.streak_updated_at ?? null;
 
+  const recentSessions: RecentSessionItem[] = (() => {
+    const items: RecentSessionItem[] = [
+      ...sessions.map((session) => ({ kind: "improve" as const, session })),
+      ...codeSessions.map((session) => ({ kind: "fix" as const, session })),
+    ];
+    items.sort((a, b) => b.session.created_at.localeCompare(a.session.created_at));
+    return items.slice(0, 5);
+  })();
+
   return {
     stats: {
-      totalSessions: sessions.length,
+      totalSessions: sessions.length + codeSessions.length,
       thisWeek,
       topMode,
       favoritePlatform,
@@ -208,7 +252,7 @@ export const useDashboardData = (): DashboardData => {
       lastSessionDate,
       streakUpdatedAt,
     },
-    recentSessions: sessions.slice(0, 5),
+    recentSessions,
     loading,
     error,
     refetch,

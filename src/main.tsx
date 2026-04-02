@@ -5,15 +5,24 @@ import "./index.css";
 import App from "./App";
 import { ThemeProvider } from "./hooks/useTheme";
 import { AuthProvider } from "./hooks/useAuth";
+import { AppFontProvider } from "./hooks/useAppFont";
+import { RuntimeFirewall } from "./components/RuntimeFirewall";
+import { readStoredAppFontId, applyAppFontToDocument } from "./lib/appFonts";
+
+applyAppFontToDocument(readStoredAppFontId());
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider>
-      <AuthProvider>
+      <AppFontProvider>
         <BrowserRouter>
-          <App />
+          <RuntimeFirewall>
+            <AuthProvider>
+              <App />
+            </AuthProvider>
+          </RuntimeFirewall>
         </BrowserRouter>
-      </AuthProvider>
+      </AppFontProvider>
     </ThemeProvider>
-  </StrictMode>
+  </StrictMode>,
 );

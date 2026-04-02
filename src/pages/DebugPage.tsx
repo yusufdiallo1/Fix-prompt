@@ -1,173 +1,188 @@
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { usePlanUsage } from "../hooks/usePlanUsage";
 import { supabase } from "../lib/supabase";
-import { debugPrompt, type DebugPromptResponse } from "../lib/groq";
+import { analyzeCode, type AnalyzeCodeResponse } from "../lib/groq";
 import { UpgradeModal } from "../components/UpgradeModal";
-import { ExportSessionButton } from "../components/ExportSessionButton";
 import { FREE_PROMPT_LIMIT, getCurrentMonthUsage, getUserPlanProfile, isProTier, openProCheckout } from "../lib/billing";
-import { downloadSessionAsTxt, formatSessionForMarkdown, formatSessionForNotes, formatSessionForNotion, type ExportSessionData } from "../lib/sessionExport";
+import { CodeScoreCard } from "../components/CodeScoreCard";
+import { ListeningBanner, MicButton, SttTextMirror, useSpeechInput } from "../components/MicButton";
+import { getSttLanguage } from "../lib/stt";
+import { lineDiffMeta } from "../lib/codeDiff";
+import { detectCodeLanguageHeuristic } from "../lib/detectCodeLanguage";
 
-const PLATFORMS = ["Lovable", "Cursor", "Replit", "Claude Code", "Codex", "Other"] as const;
-type Platform = (typeof PLATFORMS)[number];
+const LANG_PLATFORMS = [
+  "React",
+  "JavaScript",
+  "TypeScript",
+  "Python",
+  "Swift",
+  "Dart",
+  "CSS",
+  "SQL",
+  "Other",
+] as const;
+type LangPlatform = (typeof LANG_PLATFORMS)[number];
 
-const PLATFORM_ACTIVE: Record<Platform, string> = {
-  Lovable: "border-purple-300 bg-purple-100 text-purple-700",
-  Cursor: "border-blue-300 bg-blue-100 text-blue-700",
-  Replit: "border-orange-300 bg-orange-100 text-orange-700",
-  "Claude Code": "border-violet-300 bg-violet-100 text-violet-700",
-  Codex: "border-emerald-300 bg-emerald-100 text-emerald-700",
+const PLATFORM_ACTIVE: Record<LangPlatform, string> = {
+  React: "border-blue-300 bg-blue-100 text-blue-700",
+  JavaScript: "border-yellow-300 bg-yellow-100 text-yellow-800",
+  TypeScript: "border-indigo-300 bg-indigo-100 text-indigo-800",
+  Python: "border-emerald-300 bg-emerald-100 text-emerald-800",
+  Swift: "border-orange-300 bg-orange-100 text-orange-800",
+  Dart: "border-cyan-300 bg-cyan-100 text-cyan-800",
+  CSS: "border-pink-300 bg-pink-100 text-pink-800",
+  SQL: "border-violet-300 bg-violet-100 text-violet-800",
   Other: "border-[#D1D1D6] bg-[#F2F2F7] text-[#636366]",
 };
 
-const ROOT_CAUSE_BADGE: Record<string, { bg: string; text: string }> = {
-  MISSING_CONTEXT: { bg: "bg-rose-100", text: "text-rose-700" },
-  AMBIGUOUS_REQUIREMENTS: { bg: "bg-orange-100", text: "text-orange-700" },
-  PLATFORM_LIMITATION: { bg: "bg-blue-100", text: "text-blue-700" },
-  SCOPE_CREEP: { bg: "bg-yellow-100", text: "text-yellow-700" },
-  TECH_MISMATCH: { bg: "bg-purple-100", text: "text-purple-700" },
-  MISSING_DEPENDENCY: { bg: "bg-pink-100", text: "text-pink-700" },
-  LOGIC_ERROR: { bg: "bg-red-100", text: "text-red-700" },
-  STYLE_CONFLICT: { bg: "bg-teal-100", text: "text-teal-700" },
-};
-
 const LOADING_MESSAGES = [
-  "Reading your original prompt...",
-  "Diagnosing the broken code...",
-  "Identifying root causes...",
-  "Writing your fix prompt...",
+  "Reading your code...",
+  "Finding the bugs...",
+  "Writing the fix...",
+  "Generating alternatives...",
+  "Scoring your code...",
 ];
 
-interface AnalysisResult {
-  rootCause: keyof typeof ROOT_CAUSE_BADGE;
-  rootCauseLabel: string;
-  diagnosisSummary: string;
-  issues: string[];
-  confidence: number;
-  fixedCode: string;
-  codeExplanation: string;
-  alternativeOne: string;
-  alternativeTwo: string;
-  alternativeThree: string;
-  alternativeOneStyle: string;
-  alternativeTwoStyle: string;
-  alternativeThreeStyle: string;
-  keyChanges: string[];
-  platformTip: string;
-  preventionTips: string[];
-  complexityLevel: "simple" | "medium" | "complex";
-}
+type AltKey = "one" | "two" | "three";
+type FixedTab = "fixed" | "compare";
 
-const ROOT_CAUSE_LABELS: Record<keyof typeof ROOT_CAUSE_BADGE, string> = {
-  MISSING_CONTEXT: "Missing Context",
-  AMBIGUOUS_REQUIREMENTS: "Ambiguous Requirements",
-  PLATFORM_LIMITATION: "Platform Limitation",
-  SCOPE_CREEP: "Scope Creep",
-  TECH_MISMATCH: "Tech Mismatch",
-  MISSING_DEPENDENCY: "Missing Dependency",
-  LOGIC_ERROR: "Logic Error",
-  STYLE_CONFLICT: "Style Conflict",
-};
+const mono = { fontFamily: "'JetBrains Mono', ui-monospace, monospace" } as const;
 
-function BoltSvg({ className }: { className?: string }) {
+function WrenchIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" strokeWidth={1.75} stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 011.45.12l.773.774c.39.389.39 1.025.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.397.505.71.93.78l.893.15c.543.09.94.56.94 1.109v1.094c0 .55-.397 1.02-.94 1.11l-.893.149c-.425.07-.765.383-.93.78-.165.398-.143.854.107 1.204l.527.738c.27.375.27.988-.12 1.45l-.774.773a1.125 1.125 0 01-1.449.12l-.738-.527c-.35-.25-.806-.272-1.203-.107-.397.165-.71.505-.781.929l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.447.32-1.06.269-1.45-.12l-.773-.774a1.125 1.125 0 01-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.397-.505-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.854-.107-1.204l-.527-.738a1.125 1.125 0 01.12-1.45l.773-.773a1.125 1.125 0 011.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.15-.894z"
+      />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
     </svg>
   );
 }
 
-const darkTextareaClass =
-  "w-full min-h-[150px] resize-none rounded-2xl border border-white/10 bg-[rgba(30,30,34,0.90)] px-4 py-3 text-sm text-slate-100 outline-none transition duration-200 placeholder:text-slate-400 focus:border-[#3B82F6] focus:shadow-[0_0_0_3px_rgba(59,130,246,0.18)]";
+function BranchesIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 3v12M18 9a3 3 0 100-6 3 3 0 000 6zM6 21a3 3 0 100-6 3 3 0 000 6zM18 9a9 9 0 01-9 9" />
+    </svg>
+  );
+}
 
-const plainTextareaClass =
-  "w-full min-h-[120px] resize-none rounded-2xl border border-[#D1D1D6] bg-white/75 px-4 py-3 text-sm text-[#1C1C1E] outline-none transition duration-200 placeholder:text-[#8E8E93] focus:border-[#3B82F6] focus:shadow-[0_0_0_3px_rgba(59,130,246,0.14)]";
-
-const toAnalysisResult = (source: DebugPromptResponse): AnalysisResult => ({
-  rootCause: source.root_cause,
-  rootCauseLabel: ROOT_CAUSE_LABELS[source.root_cause],
-  diagnosisSummary: source.diagnosis_summary,
-  issues: source.specific_issues,
-  confidence: source.confidence_score,
-  fixedCode: source.fixed_code ?? source.fix_prompt,
-  codeExplanation: source.fixed_code_explanation ?? source.diagnosis_summary,
-  alternativeOne: source.alternative_code_one ?? source.alternative_fix_one,
-  alternativeTwo: source.alternative_code_two ?? source.alternative_fix_two,
-  alternativeThree: "",
-  alternativeOneStyle: source.alternative_fix_one_style,
-  alternativeTwoStyle: source.alternative_fix_two_style,
-  alternativeThreeStyle: "",
-  keyChanges: source.fix_key_changes,
-  platformTip: source.platform_tips,
-  preventionTips: source.prevention_tips,
-  complexityLevel: source.complexity_level,
-});
-
-const autosize = (el: HTMLTextAreaElement | null) => {
-  if (!el) return;
-  el.style.height = "0px";
-  el.style.height = `${el.scrollHeight}px`;
-};
+function CodeBlock({
+  code,
+  language,
+  maxHeightClass,
+  copyLabel = "Copy Code",
+}: {
+  code: string;
+  language: string;
+  maxHeightClass: string;
+  copyLabel?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    await navigator.clipboard.writeText(code);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <div className="overflow-hidden rounded-xl border border-white/10 bg-[rgba(30,30,34,0.92)]">
+      <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+        <span className="text-xs font-medium text-slate-400">{language || "Code"}</span>
+        <button
+          type="button"
+          onClick={() => void copy()}
+          className={[
+            "inline-flex items-center justify-center rounded-full border px-3 py-2 text-xs font-semibold transition min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 md:px-3 md:py-1",
+            copied
+              ? "border-emerald-300 bg-emerald-100 text-emerald-800"
+              : "border-white/15 bg-white/5 text-slate-200 hover:bg-white/10",
+          ].join(" ")}
+        >
+          {copied ? "✓ Copied" : copyLabel}
+        </button>
+      </div>
+      <pre
+        className={`code-block-scroll overflow-x-auto overflow-y-auto p-3 text-[13px] leading-relaxed text-slate-100 md:text-sm ${maxHeightClass}`}
+        style={mono}
+      >
+        <code className="whitespace-pre break-words">{code}</code>
+      </pre>
+    </div>
+  );
+}
 
 export const DebugPage = () => {
-  const location = useLocation();
   const { user } = useAuth();
-  const { isPro, loading: planLoading } = usePlanUsage(user?.id);
+  const { isPro } = usePlanUsage(user?.id);
 
-  const promptRef = useRef<HTMLTextAreaElement | null>(null);
-  const codeRef = useRef<HTMLTextAreaElement | null>(null);
-  const problemRef = useRef<HTMLTextAreaElement | null>(null);
+  const codeRef = useRef<HTMLTextAreaElement>(null);
+  const errRef = useRef<HTMLTextAreaElement>(null);
+  const resultsAnchorRef = useRef<HTMLDivElement>(null);
 
-  const [platform, setPlatform] = useState<Platform | null>(null);
-  const [originalPrompt, setOriginalPrompt] = useState("");
-  const [brokenCode, setBrokenCode] = useState("");
-  const [problemText, setProblemText] = useState("");
+  const [platform, setPlatform] = useState<LangPlatform | null>(null);
+  const [code, setCode] = useState("");
+  const [errorDesc, setErrorDesc] = useState("");
+  const [debouncedGuess, setDebouncedGuess] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [progressIndex, setProgressIndex] = useState(0);
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  const [result, setResult] = useState<AnalyzeCodeResponse | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
-  const [showPrevention, setShowPrevention] = useState(false);
-  const [toast, setToast] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [speechToast, setSpeechToast] = useState<{ text: string; error?: boolean } | null>(null);
+  const codeListeningBannerRef = useRef<HTMLDivElement | null>(null);
+  const errListeningBannerRef = useRef<HTMLDivElement | null>(null);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [usageCount, setUsageCount] = useState(0);
-  const [shake, setShake] = useState({
-    platform: false,
-    prompt: false,
-    code: false,
-    problem: false,
-  });
+  const [shakeCode, setShakeCode] = useState(false);
   const [platformRowScrolling, setPlatformRowScrolling] = useState(false);
   const platformScrollTimeout = useRef<number | null>(null);
+  const [fixedTab, setFixedTab] = useState<FixedTab>("fixed");
+  const [activeFix, setActiveFix] = useState<"main" | AltKey>("main");
+  const [cardVisible, setCardVisible] = useState([false, false, false, false]);
+  const [expandedFixes, setExpandedFixes] = useState(false);
+  const [expandedBugs, setExpandedBugs] = useState(false);
+  const [expandedPrevention, setExpandedPrevention] = useState(false);
+  const [favIds, setFavIds] = useState<Record<AltKey, string | null>>({ one: null, two: null, three: null });
+
+  // ── Speech-to-Text ────────────────────────────────────────────────────────
+  const sttCode = useSpeechInput({
+    value: code,
+    onChange: setCode,
+    language: getSttLanguage(),
+    textareaRef: codeRef,
+    showToast: (text, isError) =>
+      isError ? setSpeechToast({ text, error: true }) : setSpeechToast({ text, error: false }),
+  });
+  const sttErr = useSpeechInput({
+    value: errorDesc,
+    onChange: setErrorDesc,
+    language: getSttLanguage(),
+    textareaRef: errRef,
+    showToast: (text, isError) =>
+      isError ? setSpeechToast({ text, error: true }) : setSpeechToast({ text, error: false }),
+  });
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const lineCount = useMemo(() => (code.trim() ? code.split("\n").length : 0), [code]);
 
   useEffect(() => {
-    const state = location.state as
-      | { prefillPrompt?: string; prefillPlatform?: Platform }
-      | undefined;
-    if (!state) return;
-    if (state.prefillPrompt) setOriginalPrompt(state.prefillPrompt);
-    if (state.prefillPlatform) setPlatform(state.prefillPlatform);
-  }, [location.state]);
+    const t = window.setTimeout(() => setDebouncedGuess(detectCodeLanguageHeuristic(code)), 500);
+    return () => window.clearTimeout(t);
+  }, [code]);
 
-  const isFormValid = Boolean(platform && originalPrompt.trim() && brokenCode.trim() && problemText.trim());
-
-  useEffect(() => {
-    autosize(promptRef.current);
-  }, [originalPrompt]);
-
-  useEffect(() => {
-    autosize(codeRef.current);
-  }, [brokenCode]);
-
-  useEffect(() => {
-    autosize(problemRef.current);
-  }, [problemText]);
+  const displayLangPill = useMemo(() => {
+    if (result?.language_detected) return result.language_detected;
+    return debouncedGuess;
+  }, [result, debouncedGuess]);
 
   useEffect(() => {
     if (!isAnalyzing) return;
     const id = window.setInterval(() => {
-      setProgressIndex((prev) => (prev + 1) % LOADING_MESSAGES.length);
+      setProgressIndex((p) => (p + 1) % LOADING_MESSAGES.length);
     }, 2000);
     return () => window.clearInterval(id);
   }, [isAnalyzing]);
@@ -178,126 +193,235 @@ export const DebugPage = () => {
     return () => window.clearTimeout(id);
   }, [toast]);
 
-  const triggerShake = (missing: Array<keyof typeof shake>) => {
-    if (!missing.length) return;
-    setShake((prev) => {
-      const next = { ...prev };
-      missing.forEach((k) => {
-        next[k] = true;
+  useEffect(() => {
+    if (!speechToast) return;
+    const id = window.setTimeout(() => setSpeechToast(null), 4000);
+    return () => window.clearTimeout(id);
+  }, [speechToast]);
+
+  useEffect(() => {
+    if (sttCode.sttState !== "listening") return;
+    const id = window.requestAnimationFrame(() => {
+      codeListeningBannerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [sttCode.sttState]);
+
+  useEffect(() => {
+    if (sttErr.sttState !== "listening") return;
+    const id = window.requestAnimationFrame(() => {
+      errListeningBannerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [sttErr.sttState]);
+
+  const autosize = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
+  useEffect(() => {
+    autosize(codeRef.current);
+  }, [code]);
+  useEffect(() => {
+    autosize(errRef.current);
+  }, [errorDesc]);
+
+  const loadFavourites = useCallback(
+    async (sid: string) => {
+      if (!supabase || !user?.id) return;
+      const { data } = await supabase
+        .from("saved_prompts")
+        .select("id,source_alternative")
+        .eq("user_id", user.id)
+        .eq("saved_type", "code")
+        .eq("code_session_id", sid)
+        .eq("is_favourite", true);
+      const next: Record<AltKey, string | null> = { one: null, two: null, three: null };
+      (data ?? []).forEach((row: { id: string; source_alternative: string | null }) => {
+        const s = row.source_alternative as AltKey | null;
+        if (s === "one" || s === "two" || s === "three") next[s] = row.id;
       });
-      return next;
+      setFavIds(next);
+    },
+    [user?.id],
+  );
+
+  useEffect(() => {
+    if (sessionId) void loadFavourites(sessionId);
+  }, [sessionId, loadFavourites]);
+
+  useEffect(() => {
+    if (!result) {
+      setCardVisible([false, false, false, false]);
+      return;
+    }
+    setCardVisible([false, false, false, false]);
+    [0, 1, 2, 3].forEach((i) => {
+      window.setTimeout(() => {
+        setCardVisible((prev) => {
+          const n = [...prev];
+          n[i] = true;
+          return n;
+        });
+      }, 300 + i * 150);
     });
     window.setTimeout(() => {
-      setShake((prev) => {
-        const next = { ...prev };
-        missing.forEach((k) => {
-          next[k] = false;
-        });
-        return next;
-      });
-    }, 420);
-  };
+      resultsAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 300);
+  }, [result]);
 
-  const runValidation = () => {
-    const missing: Array<keyof typeof shake> = [];
-    if (!platform) missing.push("platform");
-    if (!originalPrompt.trim()) missing.push("prompt");
-    if (!brokenCode.trim()) missing.push("code");
-    if (!problemText.trim()) missing.push("problem");
-    triggerShake(missing);
-    return missing.length === 0;
-  };
+  const currentFixedCode = useMemo(() => {
+    if (!result) return "";
+    if (activeFix === "main") return result.fixed_code;
+    if (activeFix === "one") return result.alternative_one_code;
+    if (activeFix === "two") return result.alternative_two_code;
+    return result.alternative_three_code;
+  }, [result, activeFix]);
 
-  const handleAnalyze = async (event?: FormEvent) => {
-    event?.preventDefault();
-    setFormError(null);
+  const currentFixedLabel = useMemo(() => {
+    if (!result) return "";
+    if (activeFix === "main") return "Primary fix";
+    if (activeFix === "one") return result.alternative_one_label;
+    if (activeFix === "two") return result.alternative_two_label;
+    return result.alternative_three_label;
+  }, [result, activeFix]);
 
-    if (!supabase) {
-      setFormError("Supabase is not configured.");
-      return;
-    }
-    if (!user?.id) {
-      setFormError("You need to be logged in to run debug analysis.");
-      return;
-    }
-    if (supabase) {
+  const handleSubmit = useCallback(
+    async (event?: FormEvent) => {
+      event?.preventDefault();
+      setFormError(null);
+      if (!supabase) {
+        setFormError("Supabase is not configured.");
+        return;
+      }
+      if (!user?.id) {
+        setFormError("You need to be logged in.");
+        return;
+      }
+      if (!code.trim()) {
+        setShakeCode(true);
+        window.setTimeout(() => setShakeCode(false), 420);
+        setFormError("Paste your broken code first.");
+        return;
+      }
+
       const [profile, usage] = await Promise.all([getUserPlanProfile(user.id), getCurrentMonthUsage(user.id)]);
-      const isPro = isProTier(
-        profile?.plan_tier,
-        profile?.subscription_status,
-      );
-      if (!isPro && usage >= FREE_PROMPT_LIMIT) {
+      const pro = isProTier(profile?.plan_tier, profile?.subscription_status);
+      if (!pro && usage >= FREE_PROMPT_LIMIT) {
         setUsageCount(usage);
         setUpgradeOpen(true);
         return;
       }
-    }
-    if (!runValidation()) {
-      return;
-    }
 
-    setIsAnalyzing(true);
-    setProgressIndex(0);
-    setShowPrevention(false);
-    setAnalysis(null);
+      const platformValue = platform ?? "Other";
 
-    try {
-      const response = await debugPrompt({
-        original_prompt: originalPrompt.trim(),
-        broken_code: brokenCode.trim(),
-        error_message: problemText.trim(),
-        platform: platform!,
-        user_id: user.id,
-      });
-      setAnalysis(toAnalysisResult(response));
-      setToast({ kind: "success", text: "Session saved" });
-    } catch (analyzeError) {
-      console.error("Debug request failed", analyzeError);
-      const message =
-        analyzeError instanceof Error ? analyzeError.message : "Could not analyze prompt. Please try again.";
-      if (message === "Slow down a little, you are sending too many requests.") {
-        setToast({ kind: "error", text: message });
+      setIsAnalyzing(true);
+      setProgressIndex(0);
+      setResult(null);
+      setSessionId(null);
+      setActiveFix("main");
+      setFixedTab("fixed");
+
+      try {
+        const res = await analyzeCode({
+          original_code: code.trim(),
+          error_description: errorDesc.trim(),
+          platform: platformValue,
+          user_id: user.id,
+        });
+        setResult(res);
+        if (res.session_id) setSessionId(res.session_id);
+        setToast("Session saved");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Analysis failed. Try again.";
+        setFormError(msg);
+      } finally {
+        setIsAnalyzing(false);
       }
-      setFormError(message);
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
+    },
+    [code, errorDesc, platform, user?.id],
+  );
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Enter") return;
-      if (!(event.metaKey || event.ctrlKey)) return;
-      event.preventDefault();
-      void handleAnalyze();
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== "Enter" || !(ev.metaKey || ev.ctrlKey)) return;
+      ev.preventDefault();
+      void handleSubmit();
     };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handleSubmit]);
 
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [platform, originalPrompt, brokenCode, problemText]);
-
-  const copyLabel = useMemo(() => (copyState === "copied" ? "Copied!" : "Copy Code"), [copyState]);
-
-  const onCopyPrompt = async () => {
-    if (!analysis) return;
-    await navigator.clipboard.writeText(analysis.fixedCode);
-    setCopyState("copied");
-    window.setTimeout(() => setCopyState("idle"), 2000);
-  };
-
-  const shareText = async (text: string) => {
-    const value = `${text}\n\nImproved with PromptFix`;
-    try {
-      if (navigator.share) {
-        await navigator.share({ text: value });
-      } else {
-        await navigator.clipboard.writeText(value);
-        setToast({ kind: "success", text: "Copied for sharing" });
-      }
-    } catch (error) {
-      console.error("Share failed", error);
+  const toggleFavourite = async (key: AltKey, altCode: string, label: string) => {
+    if (!supabase || !user?.id || !sessionId) return;
+    const existing = favIds[key];
+    if (existing) {
+      await supabase.from("saved_prompts").delete().eq("id", existing);
+      setFavIds((p) => ({ ...p, [key]: null }));
+      return;
     }
+    if (!isPro) {
+      const { count } = await supabase
+        .from("saved_prompts")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id);
+      if ((count ?? 0) >= 5) {
+        setUpgradeOpen(true);
+        return;
+      }
+    }
+    const { data, error } = await supabase
+      .from("saved_prompts")
+      .insert({
+        user_id: user.id,
+        session_id: null,
+        code_session_id: sessionId,
+        saved_type: "code",
+        prompt_text: altCode,
+        prompt_type: "alternative",
+        label,
+        is_favourite: true,
+        source_alternative: key,
+        platform: platform ?? "Other",
+      })
+      .select("id")
+      .single();
+    if (!error && data) setFavIds((p) => ({ ...p, [key]: (data as { id: string }).id }));
   };
+
+  const diff = useMemo(() => {
+    if (!result) return null;
+    return lineDiffMeta(code, currentFixedCode);
+  }, [code, currentFixedCode, result]);
+
+  const alternatives = useMemo(() => {
+    if (!result) return [];
+    return [
+      {
+        key: "one" as const,
+        label: result.alternative_one_label,
+        explanation: result.alternative_one_explanation,
+        body: result.alternative_one_code,
+        badge: "border-blue-300 bg-blue-100 text-blue-800",
+      },
+      {
+        key: "two" as const,
+        label: result.alternative_two_label,
+        explanation: result.alternative_two_explanation,
+        body: result.alternative_two_code,
+        badge: "border-purple-300 bg-purple-100 text-purple-800",
+      },
+      {
+        key: "three" as const,
+        label: result.alternative_three_label,
+        explanation: result.alternative_three_explanation,
+        body: result.alternative_three_code,
+        badge: "border-emerald-300 bg-emerald-100 text-emerald-800",
+      },
+    ];
+  }, [result]);
 
   const onPlatformRowScroll = () => {
     setPlatformRowScrolling(true);
@@ -305,113 +429,35 @@ export const DebugPage = () => {
     platformScrollTimeout.current = window.setTimeout(() => setPlatformRowScrolling(false), 650);
   };
 
-  const buildExportData = (): ExportSessionData | null => {
-    if (!analysis) return null;
-    const now = new Date();
-    return {
-      dateLabel: now.toLocaleDateString(),
-      platform: platform ?? "Other",
-      promptType: "Debug",
-      originalPrompt: originalPrompt.trim(),
-      improvedPrompt: analysis.fixedCode.trim(),
-      scoreBefore: "N/A",
-      scoreAfter: "N/A",
-      keyChanges: analysis.keyChanges,
-      alternatives: [
-        { style: analysis.alternativeOneStyle, prompt: analysis.alternativeOne },
-        { style: analysis.alternativeTwoStyle, prompt: analysis.alternativeTwo },
-      ].filter((alt) => alt.prompt.trim().length > 0),
-    };
-  };
-
-  const exportForNotion = async () => {
-    const data = buildExportData();
-    if (!data) return;
-    await navigator.clipboard.writeText(formatSessionForNotion(data));
-    setToast({ kind: "success", text: "Copied in Notion format" });
-  };
-
-  const exportForNotes = async () => {
-    const data = buildExportData();
-    if (!data) return;
-    await navigator.clipboard.writeText(formatSessionForNotes(data));
-    setToast({ kind: "success", text: "Copied for Notes" });
-  };
-
-  const exportForMarkdown = async () => {
-    const data = buildExportData();
-    if (!data) return;
-    await navigator.clipboard.writeText(formatSessionForMarkdown(data));
-    setToast({ kind: "success", text: "Copied as Markdown" });
-  };
-
-  const exportAsTextFile = () => {
-    const data = buildExportData();
-    if (!data) return;
-    setToast({ kind: "success", text: "Preparing download..." });
-    const token = new Date().toISOString().slice(0, 10);
-    window.setTimeout(() => {
-      downloadSessionAsTxt(formatSessionForNotes(data), token);
-    }, 120);
-  };
-
-  const proLocked = Boolean(user?.id && !planLoading && !isPro);
-
   return (
-    <section className="mx-auto w-full max-w-4xl pb-20">
+    <section className="mx-auto w-full max-w-4xl overflow-x-hidden pb-24">
       <header className="mb-7">
-        <h1 className="text-[30px] font-semibold tracking-tight text-[#1C1C1E]">Debug My Code</h1>
+        <h1 className="text-[30px] font-semibold tracking-tight text-[#1C1C1E]">Fix My Code</h1>
         <p className="mt-1 text-sm text-[#636366]">
-          Paste your prompt and broken code. Get a fixed prompt instantly.
+          Paste broken code. Get a working fix plus three alternatives and a code score.
         </p>
       </header>
 
-      {proLocked ? (
-        <div className="rounded-2xl border border-blue-200 bg-blue-50/75 p-5">
-          <h2 className="text-lg font-semibold text-blue-700">Debug Mode is a Pro feature</h2>
-          <p className="mt-1 text-sm text-blue-700/90">Upgrade to unlock full debug analysis, root-cause breakdowns, and fix prompts.</p>
-          <button
-            type="button"
-            onClick={() => {
-              try {
-                openProCheckout();
-              } catch (error) {
-                setFormError(error instanceof Error ? error.message : "Could not open Stripe checkout.");
-              }
-            }}
-            className="mt-4 rounded-full bg-gradient-to-r from-[#3B82F6] to-[#6366F1] px-4 py-2 text-sm font-semibold text-white"
-          >
-            Upgrade to Pro
-          </button>
-        </div>
-      ) : null}
-
-      {!proLocked ? (
-      <>
-      <div className="md:max-lg:grid md:max-lg:grid-cols-[55%_45%] md:max-lg:gap-4">
-      <div>
-      <form onSubmit={handleAnalyze} className="space-y-5">
-        <div
-          className={`rounded-2xl border border-[#E5E5EA] bg-white/70 p-4 backdrop-blur-xl ${shake.platform ? "debug-shake" : ""}`}
-        >
-          <p className="mb-3 text-sm font-medium text-[#1C1C1E]">Choose Platform</p>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="rounded-2xl border border-[#E5E5EA] bg-white/70 p-4 backdrop-blur-xl">
+          <p className="mb-3 text-sm font-medium text-[#1C1C1E]">Language or framework</p>
           <div
             onScroll={onPlatformRowScroll}
             className={[
-              "pill-scrollbar flex gap-2 overflow-x-auto pb-1 md:flex-wrap md:overflow-visible",
+              "pill-scrollbar flex gap-2 overflow-x-auto pb-1 md:max-lg:flex-wrap md:max-lg:overflow-visible",
               platformRowScrolling ? "pill-scrollbar-active" : "",
             ].join(" ")}
           >
-            {PLATFORMS.map((p) => (
+            {LANG_PLATFORMS.map((p) => (
               <button
                 key={p}
                 type="button"
                 onClick={() => setPlatform(p)}
                 className={[
-                  "flex h-11 w-[116px] shrink-0 items-center justify-center rounded-full border px-3 py-1.5 text-center text-sm font-medium transition duration-150 whitespace-nowrap",
+                  "flex h-11 min-w-[104px] shrink-0 items-center justify-center rounded-full border px-3 py-1.5 text-center text-sm font-medium whitespace-nowrap transition",
                   platform === p
                     ? PLATFORM_ACTIVE[p]
-                    : "border-[#D1D1D6] bg-white/65 text-[#636366] backdrop-blur-xl hover:bg-white",
+                    : "border-[#D1D1D6] bg-white/75 text-[#636366] hover:bg-white",
                 ].join(" ")}
               >
                 {p}
@@ -421,292 +467,406 @@ export const DebugPage = () => {
         </div>
 
         <article
-          className={`rounded-2xl border border-[#E5E5EA] bg-white/72 p-5 backdrop-blur-xl ${shake.prompt ? "debug-shake" : ""}`}
+          className={`relative rounded-2xl border border-[#E5E5EA] bg-white/72 p-5 backdrop-blur-xl ${shakeCode ? "debug-shake" : ""}`}
         >
-          <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#636366]">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#DBEAFE] text-[11px] text-[#3B82F6]">1</span>
-            Step 1 - What did you ask the AI to build?
-          </p>
-          <h2 className="mb-3 text-lg font-semibold text-[#1C1C1E]">Your Original Prompt</h2>
-          <textarea
-            ref={promptRef}
-            value={originalPrompt}
-            onChange={(event) => setOriginalPrompt(event.target.value)}
-            className={darkTextareaClass}
-            placeholder="Paste the exact prompt you gave to Lovable, Cursor, or Replit..."
-          />
-        </article>
-
-        <article
-          className={`rounded-2xl border border-[#E5E5EA] bg-white/72 p-5 backdrop-blur-xl ${shake.code ? "debug-shake" : ""}`}
-        >
-          <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#636366]">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#DBEAFE] text-[11px] text-[#3B82F6]">2</span>
-            Step 2 - Paste the code that was generated
-          </p>
-          <h2 className="mb-3 text-lg font-semibold text-[#1C1C1E]">The Broken Code</h2>
-          <div className="relative">
+          <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-semibold text-[#1C1C1E]">Your Broken Code</h2>
+              <p className="text-sm text-[#636366]">Paste the code that is not working</p>
+            </div>
+            {displayLangPill ? (
+              <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800">
+                {displayLangPill}
+              </span>
+            ) : null}
+          </div>
+          {sttCode.isSupported && (
+            <ListeningBanner
+              ref={codeListeningBannerRef}
+              visible={sttCode.sttState === "listening"}
+              onStop={sttCode.stop}
+              label="Listening... speak your prompt"
+            />
+          )}
+          <div className="relative rounded-2xl">
+            {sttCode.isSupported && (sttCode.sttState === "listening" || sttCode.sttState === "processing") ? (
+              <SttTextMirror
+                dark
+                committed={sttCode.committedPart}
+                interim={sttCode.interimText}
+                placeholder="Paste your broken or buggy code here..."
+                className="px-4 py-3 pb-12 pr-14 text-[13px] leading-relaxed md:text-sm"
+              />
+            ) : null}
             <textarea
               ref={codeRef}
-              value={brokenCode}
-              onChange={(event) => setBrokenCode(event.target.value)}
-              className={`${darkTextareaClass} font-mono text-[12px] sm:text-[13px]`}
-              placeholder="Paste the broken or incomplete code here..."
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              spellCheck={false}
+              className={[
+                "scrollbar-hide min-h-[260px] w-full resize-none overflow-y-auto rounded-2xl border border-white/10 bg-[rgba(30,30,34,0.92)] px-4 py-3 pb-12 pr-14 text-[13px] outline-none placeholder:text-slate-500 focus:border-[#3B82F6] focus:shadow-[0_0_0_3px_rgba(59,130,246,0.18)] md:min-h-[300px] md:text-sm",
+                sttCode.isSupported && (sttCode.sttState === "listening" || sttCode.sttState === "processing")
+                  ? "relative z-[1] bg-transparent text-transparent caret-slate-100 placeholder:text-transparent"
+                  : "text-slate-100",
+              ].join(" ")}
+              placeholder="Paste your broken or buggy code here..."
             />
-            <span className="absolute bottom-3 right-3 text-xs text-slate-400">{brokenCode.length} chars</span>
+            <div className="pointer-events-none absolute bottom-3 right-3 text-xs text-slate-500">{lineCount} lines</div>
+            {sttCode.isSupported && (
+              <MicButton
+                sttState={sttCode.sttState}
+                onClick={sttCode.toggle}
+                dark
+                className="absolute bottom-[2px] left-[2px]"
+              />
+            )}
           </div>
         </article>
 
-        <article
-          className={`rounded-2xl border border-[#E5E5EA] bg-white/72 p-5 backdrop-blur-xl ${shake.problem ? "debug-shake" : ""}`}
-        >
-          <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#636366]">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#DBEAFE] text-[11px] text-[#3B82F6]">3</span>
-            Step 3 - What went wrong?
+        <article className="rounded-2xl border border-[#E5E5EA] bg-white/85 p-5 backdrop-blur-xl">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold text-[#1C1C1E]">What is the error? (optional)</h2>
+            <span className="rounded-full bg-[#F2F2F7] px-2 py-0.5 text-[11px] font-medium text-[#8E8E93]">
+              Optional
+            </span>
+          </div>
+          <p className="mb-3 text-sm text-[#636366]">
+            Paste the error message or describe what is broken. Leave empty if you are not sure.
           </p>
-          <h2 className="mb-3 text-lg font-semibold text-[#1C1C1E]">The Error or Problem</h2>
-          <textarea
-            ref={problemRef}
-            value={problemText}
-            onChange={(event) => setProblemText(event.target.value)}
-            className={plainTextareaClass}
-            placeholder="Describe the error message, what is broken, or what the code fails to do..."
-          />
+          {sttErr.isSupported && (
+            <ListeningBanner
+              ref={errListeningBannerRef}
+              visible={sttErr.sttState === "listening"}
+              onStop={sttErr.stop}
+              label="Listening... speak your prompt"
+            />
+          )}
+          <div className="relative rounded-2xl">
+            {sttErr.isSupported && (sttErr.sttState === "listening" || sttErr.sttState === "processing") ? (
+              <SttTextMirror
+                committed={sttErr.committedPart}
+                interim={sttErr.interimText}
+                placeholder="Paste the error message or describe what is not working..."
+                className="px-4 py-3 pb-12 pr-14 text-sm leading-relaxed"
+              />
+            ) : null}
+            <textarea
+              ref={errRef}
+              value={errorDesc}
+              onChange={(e) => setErrorDesc(e.target.value)}
+              className={[
+                "scrollbar-hide min-h-[128px] w-full resize-none overflow-y-auto rounded-2xl border border-[#D1D1D6] bg-white/90 px-4 py-3 pb-12 pr-14 text-sm outline-none placeholder:text-[#8E8E93] focus:border-[#3B82F6] md:min-h-[140px]",
+                sttErr.isSupported && (sttErr.sttState === "listening" || sttErr.sttState === "processing")
+                  ? "relative z-[1] bg-transparent text-transparent caret-[#1C1C1E] placeholder:text-transparent"
+                  : "text-[#1C1C1E]",
+              ].join(" ")}
+              placeholder="Paste the error message or describe what is not working..."
+            />
+            {sttErr.isSupported && (
+              <MicButton
+                sttState={sttErr.sttState}
+                onClick={sttErr.toggle}
+                className="absolute bottom-[2px] left-[2px]"
+              />
+            )}
+          </div>
         </article>
 
-        {formError ? <p className="text-sm text-[#FF453A]">{formError}</p> : null}
+        {formError ? <p className="text-sm text-rose-600">{formError}</p> : null}
 
-        <div className="pt-1">
+        <div className="flex justify-center">
           <button
             type="submit"
-            disabled={!isFormValid || isAnalyzing}
-            className="mx-auto flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#3B82F6] to-[#A78BFA] px-7 py-4 text-base font-semibold text-white shadow-[0_12px_30px_rgba(59,130,246,0.25)] transition duration-200 hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isAnalyzing}
+            className="flex w-full max-w-xl items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#3B82F6] to-[#A78BFA] px-8 py-4 text-base font-semibold text-white shadow-[0_8px_28px_rgba(59,130,246,0.35)] transition hover:brightness-105 disabled:opacity-70 md:w-auto md:min-w-[320px]"
           >
             {isAnalyzing ? (
               <>
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/25 border-t-white" />
-                Analyzing your code...
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                Analysing your code...
               </>
             ) : (
               <>
-                <BoltSvg className="h-4 w-4" />
-                Analyze &amp; Fix My Prompt
+                <WrenchIcon className="h-5 w-5" />
+                Fix My Code
               </>
             )}
           </button>
-          <p className="mt-2 text-center text-xs text-[#8E8E93]">Shortcut: Ctrl/Cmd + Enter</p>
-          {isAnalyzing ? (
-            <p className="mt-2 text-center text-sm text-[#636366]">{LOADING_MESSAGES[progressIndex]}</p>
-          ) : null}
         </div>
+        {isAnalyzing ? (
+          <p className="text-center text-sm text-[#636366]">{LOADING_MESSAGES[progressIndex]}</p>
+        ) : null}
       </form>
-      </div>
 
-      <aside className="tablet-panel-sticky hidden rounded-2xl border border-[#E5E5EA] bg-white/74 p-4 backdrop-blur-xl md:max-lg:block">
-        {!analysis && !isAnalyzing ? (
-          <div className="flex min-h-[320px] items-center justify-center rounded-2xl border border-dashed border-[#D1D1D6] bg-white/70 p-6 text-center text-sm text-[#636366]">
-            Your results will appear here
-          </div>
-        ) : null}
+      <div ref={resultsAnchorRef} className="mt-10 scroll-mt-28" />
 
-        {analysis ? (
-          <div className="space-y-3">
-            <article className="rounded-2xl border border-[#E5E5EA] bg-white/80 p-4">
-              <span
-                className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${ROOT_CAUSE_BADGE[analysis.rootCause]?.bg ?? "bg-[#F2F2F7]"} ${ROOT_CAUSE_BADGE[analysis.rootCause]?.text ?? "text-[#636366]"}`}
-              >
-                {analysis.rootCauseLabel}
-              </span>
-              <p className="mt-3 text-sm text-[#3A3A3C]">{analysis.diagnosisSummary}</p>
-            </article>
-            <article className="rounded-2xl border border-[#E5E5EA] bg-white/80 p-4">
-              <h3 className="text-lg font-semibold text-[#1C1C1E]">Fixed Code</h3>
-              <pre className="mt-3 overflow-auto rounded-2xl border border-white/10 bg-[rgba(30,30,34,0.90)] p-4 text-sm leading-6 text-slate-100">
-                <code className="font-mono whitespace-pre-wrap">{analysis.fixedCode}</code>
-              </pre>
-              <p className="mt-3 text-sm text-[#636366]">{analysis.codeExplanation}</p>
-            </article>
-            <article className="rounded-2xl border border-[#E5E5EA] bg-white/80 p-4">
-              <h3 className="text-lg font-semibold text-[#1C1C1E]">Alternatives</h3>
-              <div className="mt-3 space-y-2">
-                {[analysis.alternativeOne, analysis.alternativeTwo].map((alternative, idx) => (
-                  <pre key={idx} className="whitespace-pre-wrap rounded-xl border border-[#E5E7EB] bg-[#F8F8FA] p-3 text-xs text-[#1C1C1E]">
-                    {alternative}
-                  </pre>
-                ))}
-              </div>
-            </article>
-            <div className="flex justify-end pt-1">
-              <ExportSessionButton
-                onCopyNotion={exportForNotion}
-                onCopyNotes={exportForNotes}
-                onCopyMarkdown={exportForMarkdown}
-                onDownloadText={exportAsTextFile}
-              />
-            </div>
-          </div>
-        ) : null}
-      </aside>
-      </div>
-
-      {analysis ? (
-        <section className="debug-results-enter mt-10 space-y-4 md:max-lg:hidden">
-          <article
-            className="debug-result-card rounded-2xl border border-[#E5E5EA] bg-white/75 p-6 backdrop-blur-xl"
-            style={{ animationDelay: "0ms" }}
+      {result ? (
+        <div className="mt-6 space-y-5">
+          <div
+            className={`transition-all duration-500 ${cardVisible[0] ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}
           >
-            <h3 className="text-xl font-semibold text-[#1C1C1E]">What Went Wrong</h3>
-            <span
-              className={`mt-4 inline-flex rounded-full px-4 py-1.5 text-sm font-semibold ${ROOT_CAUSE_BADGE[analysis.rootCause]?.bg ?? "bg-[#F2F2F7]"} ${ROOT_CAUSE_BADGE[analysis.rootCause]?.text ?? "text-[#636366]"}`}
-            >
-              {analysis.rootCauseLabel}
-            </span>
-            <p className="mt-4 text-sm leading-6 text-[#3A3A3C]">{analysis.diagnosisSummary}</p>
-
-            <div className="mt-5">
-              <div className="mb-2 flex items-center justify-between text-xs font-medium text-[#636366]">
-                <span>Diagnosis Confidence</span>
-                <span>{analysis.confidence}%</span>
-              </div>
-              <div className="h-2 rounded-full bg-[#DDE5F2]">
-                <div
-                  className="h-2 rounded-full bg-[#3B82F6] transition-all duration-700"
-                  style={{ width: `${analysis.confidence}%` }}
-                />
-              </div>
-            </div>
-
-            <ul className="mt-5 space-y-2">
-              {analysis.issues.map((issue) => (
-                <li key={issue} className="flex gap-2 text-sm text-[#4A4A4E]">
-                  <span className="mt-1 h-2 w-2 rounded-full bg-rose-400" />
-                  <span>{issue}</span>
-                </li>
-              ))}
-            </ul>
-          </article>
-
-          <article
-            className="debug-result-card rounded-2xl border border-[#E5E5EA] bg-white/75 p-6 backdrop-blur-xl"
-            style={{ animationDelay: "110ms" }}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-xl font-semibold text-[#1C1C1E]">Fixed Code</h3>
-              <button
-                type="button"
-                onClick={() => void shareText(analysis.fixedCode)}
-                className="rounded-full border border-[#D1D1D6] bg-white p-2 text-xs text-[#636366]"
-              >
-                Share
-              </button>
-            </div>
-            <p className="mt-1 text-sm text-[#636366]">Copy this fixed version and test it in {platform}</p>
-
-            <pre className="mt-4 overflow-auto rounded-2xl border border-white/10 bg-[rgba(30,30,34,0.90)] p-4 text-sm leading-6 text-slate-100">
-              <code className="font-mono whitespace-pre-wrap">{analysis.fixedCode}</code>
-            </pre>
-
-            <button
-              type="button"
-              onClick={onCopyPrompt}
-              className={[
-                "mt-4 flex w-full items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold text-white transition duration-200",
-                copyState === "copied"
-                  ? "bg-emerald-500 hover:bg-emerald-500"
-                  : "bg-gradient-to-r from-[#3B82F6] to-[#A78BFA] hover:brightness-105",
-              ].join(" ")}
-            >
-              {copyState === "copied" ? "✓" : "⎘"} {copyLabel}
-            </button>
-
-            <div className="mt-4 rounded-2xl border border-[#E5E5EA] bg-white/85 p-4">
-              <h4 className="text-sm font-semibold text-[#1C1C1E]">What was fixed</h4>
-              <p className="mt-1 text-sm text-[#636366]">{analysis.codeExplanation}</p>
-            </div>
-
-            <div className="mt-5">
-              <h4 className="text-sm font-semibold text-[#1C1C1E]">Key Changes</h4>
-              <ul className="mt-2 space-y-2">
-                {analysis.keyChanges.map((item) => (
-                  <li key={item} className="flex gap-2 text-sm text-[#3A3A3C]">
-                    <span className="mt-1 h-2 w-2 rounded-full bg-emerald-400" />
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/80 p-4">
-              <h4 className="text-sm font-semibold text-blue-700">Platform Tip</h4>
-              <p className="mt-1 text-sm text-blue-700/90">{analysis.platformTip}</p>
-            </div>
-          </article>
-
-          <article
-            className="debug-result-card rounded-2xl border border-[#E5E5EA] bg-white/75 p-6 backdrop-blur-xl"
-            style={{ animationDelay: "220ms" }}
-          >
-            <div className="mb-2 flex justify-end">
-              <button
-                type="button"
-                onClick={() => void shareText(`${analysis.alternativeOne}\n\n${analysis.alternativeTwo}`)}
-                className="rounded-full border border-[#D1D1D6] bg-white p-2 text-xs text-[#636366]"
-              >
-                Share
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowPrevention((prev) => !prev)}
-              className="flex w-full items-center justify-between text-left"
-            >
-              <h3 className="text-xl font-semibold text-[#1C1C1E]">Avoid This Next Time</h3>
-              <span className="text-sm text-[#636366]">{showPrevention ? "Hide" : "Show"}</span>
-            </button>
-
-            {showPrevention ? (
-              <ul className="mt-4 space-y-2">
-                {analysis.preventionTips.map((tip) => (
-                  <li key={tip} className="text-sm leading-6 text-[#3A3A3C]">
-                    • {tip}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </article>
-          <div className="flex justify-end">
-            <ExportSessionButton
-              onCopyNotion={exportForNotion}
-              onCopyNotes={exportForNotes}
-              onCopyMarkdown={exportForMarkdown}
-              onDownloadText={exportAsTextFile}
+            <CodeScoreCard
+              readabilityBefore={result.score_readability_before}
+              efficiencyBefore={result.score_efficiency_before}
+              structureBefore={result.score_structure_before}
+              readabilityAfter={result.score_readability_after}
+              efficiencyAfter={result.score_efficiency_after}
+              structureAfter={result.score_structure_after}
+              overallBefore={result.overall_score_before}
+              overallAfter={result.overall_score_after}
+              insight={result.fix_explanation}
+              bugsCount={result.bugs_found.length}
+              languageLabel={result.language_detected}
+              complexityLabel={result.complexity_level}
             />
           </div>
-        </section>
-      ) : null}
-      </>
+
+          <div
+            className={`transition-all duration-500 ${cardVisible[1] ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}
+          >
+            <article className="rounded-2xl border border-[#E5E5EA] bg-white/80 p-5 backdrop-blur-xl">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-emerald-500">✓</span>
+                  <h2 className="text-lg font-semibold text-[#1C1C1E]">Fixed Code</h2>
+                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
+                    {currentFixedLabel}
+                  </span>
+                </div>
+                <div className="flex rounded-full border border-[#D1D1D6] bg-[#F2F2F7] p-0.5 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setFixedTab("fixed")}
+                    className={`rounded-full px-3 py-1.5 ${fixedTab === "fixed" ? "bg-white text-[#1C1C1E] shadow-sm" : "text-[#636366]"}`}
+                  >
+                    Fixed Code
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFixedTab("compare")}
+                    className={`rounded-full px-3 py-1.5 ${fixedTab === "compare" ? "bg-white text-[#1C1C1E] shadow-sm" : "text-[#636366]"}`}
+                  >
+                    Compare
+                  </button>
+                </div>
+              </div>
+              {activeFix !== "main" ? (
+                <button
+                  type="button"
+                  onClick={() => setActiveFix("main")}
+                  className="mb-3 text-sm font-medium text-[#3B82F6] underline"
+                >
+                  Back to original fix
+                </button>
+              ) : null}
+
+              {fixedTab === "fixed" ? (
+                <CodeBlock
+                  code={currentFixedCode}
+                  language={result.language_detected}
+                  maxHeightClass="max-h-[300px] md:max-h-[400px]"
+                />
+              ) : diff ? (
+                <div className="flex flex-col gap-4 min-[1024px]:flex-row">
+                  <div className="min-w-0 flex-1">
+                    <p className="mb-2 text-xs font-semibold text-[#8E8E93]">Original</p>
+                    <pre
+                      className="code-block-scroll max-h-[280px] overflow-auto overflow-x-auto rounded-xl border border-white/10 bg-[rgba(30,30,34,0.92)] p-3 text-[13px] text-slate-100 md:max-h-[400px] md:text-sm"
+                      style={mono}
+                    >
+                      {diff.oLines.map((line, i) => (
+                        <div
+                          key={`o-${i}`}
+                          className={diff.originalHighlight[i] ? "bg-rose-500/15" : ""}
+                        >
+                          {line}
+                        </div>
+                      ))}
+                    </pre>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="mb-2 text-xs font-semibold text-emerald-600">Fixed</p>
+                    <pre
+                      className="code-block-scroll max-h-[280px] overflow-auto overflow-x-auto rounded-xl border border-white/10 bg-[rgba(30,30,34,0.92)] p-3 text-[13px] text-slate-100 md:max-h-[400px] md:text-sm"
+                      style={mono}
+                    >
+                      {diff.fLines.map((line, i) => (
+                        <div
+                          key={`f-${i}`}
+                          className={diff.fixedHighlight[i] ? "bg-emerald-500/15" : ""}
+                        >
+                          {line}
+                        </div>
+                      ))}
+                    </pre>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="mt-4 border-t border-[#E5E5EA] pt-3">
+                <button
+                  type="button"
+                  onClick={() => setExpandedFixes((v) => !v)}
+                  className="flex w-full items-center justify-between text-left text-sm font-semibold text-[#1C1C1E]"
+                >
+                  What Was Fixed
+                  <span>{expandedFixes ? "▼" : "▶"}</span>
+                </button>
+                {expandedFixes ? (
+                  <ul className="mt-2 space-y-2">
+                    {result.key_fixes.map((x, i) => (
+                      <li key={i} className="flex gap-2 text-sm text-[#636366]">
+                        <span className="text-emerald-500">✓</span>
+                        {x}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+
+              <div className="mt-3 border-t border-[#E5E5EA] pt-3">
+                <button
+                  type="button"
+                  onClick={() => setExpandedBugs((v) => !v)}
+                  className="flex w-full items-center justify-between text-left text-sm font-semibold text-[#1C1C1E]"
+                >
+                  Bugs Found
+                  <span>{expandedBugs ? "▼" : "▶"}</span>
+                </button>
+                {expandedBugs ? (
+                  <ul className="mt-2 space-y-2">
+                    {result.bugs_found.map((x, i) => (
+                      <li key={i} className="flex gap-2 text-sm text-[#636366]">
+                        <span className="text-rose-500">!</span>
+                        {x}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            </article>
+          </div>
+
+          <div
+            className={`transition-all duration-500 ${cardVisible[2] ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}
+          >
+            <article className="rounded-2xl border border-[#E5E5EA] bg-white/80 p-5 backdrop-blur-xl">
+              <div className="mb-1 flex items-center gap-2">
+                <BranchesIcon className="h-5 w-5 text-[#636366]" />
+                <h2 className="text-lg font-semibold text-[#1C1C1E]">Alternative Approaches</h2>
+              </div>
+              <p className="mb-4 text-sm text-[#636366]">Three different ways to solve the same problem.</p>
+              <div className="grid grid-cols-1 gap-4 min-[1024px]:grid-cols-3">
+                {alternatives.map((alt) => (
+                  <div
+                    key={alt.key}
+                    className="relative rounded-2xl border border-[#E5E5EA] bg-white/70 p-4"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => void toggleFavourite(alt.key, alt.body, alt.label)}
+                      className="absolute right-3 top-3 text-rose-500 hover:scale-110"
+                      aria-label="Favourite"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="h-6 w-6"
+                        fill={favIds[alt.key] ? "currentColor" : "none"}
+                        stroke="currentColor"
+                        strokeWidth={1.8}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z"
+                        />
+                      </svg>
+                    </button>
+                    <span
+                      className={`inline-block rounded-full border px-2.5 py-0.5 text-xs font-semibold ${alt.badge}`}
+                    >
+                      {alt.label}
+                    </span>
+                    <p className="mt-2 text-sm italic text-[#8E8E93]">{alt.explanation}</p>
+                    <div className="mt-3">
+                      <CodeBlock
+                        code={alt.body}
+                        language={result.language_detected}
+                        maxHeightClass="max-h-[300px]"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveFix(alt.key)}
+                      className="mt-3 w-full rounded-full border border-[#D1D1D6] bg-white/80 py-2.5 text-sm font-semibold text-[#1C1C1E] transition hover:bg-[#F2F2F7]"
+                    >
+                      Use This Instead
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </article>
+          </div>
+
+          <div
+            className={`transition-all duration-500 ${cardVisible[3] ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}
+          >
+            <article className="rounded-2xl border border-[#E5E5EA] bg-white/80 p-5 backdrop-blur-xl">
+              <button
+                type="button"
+                onClick={() => setExpandedPrevention((v) => !v)}
+                className="flex w-full items-center justify-between text-left"
+              >
+                <h2 className="text-lg font-semibold text-[#1C1C1E]">Avoid This Next Time</h2>
+                <span>{expandedPrevention ? "▼" : "▶"}</span>
+              </button>
+              {expandedPrevention ? (
+                <>
+                  <ul className="mt-3 space-y-2">
+                    {result.prevention_tips.map((x, i) => (
+                      <li key={i} className="flex gap-2 text-sm text-[#636366]">
+                        <span className="text-orange-500">●</span>
+                        {x}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-3 text-sm text-[#8E8E93]">
+                    These are the most common causes of this type of bug.
+                  </p>
+                </>
+              ) : null}
+            </article>
+          </div>
+        </div>
       ) : null}
 
       {toast ? (
-        <div
-          className={[
-            "fixed bottom-5 right-5 rounded-xl px-4 py-2 text-sm shadow-lg",
-            toast.kind === "success" ? "bg-emerald-500 text-white" : "bg-rose-500 text-white",
-          ].join(" ")}
-        >
-          {toast.text}
+        <div className="fixed bottom-24 left-1/2 z-[160] -translate-x-1/2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg md:bottom-8">
+          {toast}
         </div>
       ) : null}
+      {speechToast ? (
+        <div
+          className={[
+            "fixed bottom-36 left-1/2 z-[165] max-w-[min(92vw,360px)] -translate-x-1/2 rounded-xl border px-4 py-2 text-sm shadow-lg md:bottom-24",
+            speechToast.error
+              ? "border-rose-200 bg-rose-50 text-rose-700"
+              : "border-[#E5E5EA] bg-[#F2F2F7] text-[#636366]",
+          ].join(" ")}
+        >
+          {speechToast.text}
+        </div>
+      ) : null}
+
       <UpgradeModal
         open={upgradeOpen}
-        usageCount={usageCount}
         onClose={() => setUpgradeOpen(false)}
+        usageCount={usageCount}
         onUpgrade={() => {
           try {
             openProCheckout();
-          } catch (error) {
-            console.error("Upgrade redirect failed", error);
-            setFormError(error instanceof Error ? error.message : "Could not open Stripe checkout.");
+          } catch (e) {
+            console.error(e);
           }
         }}
       />
