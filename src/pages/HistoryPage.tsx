@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { BottomSheet } from "../components/BottomSheet";
+import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { usePullToRefresh } from "../hooks/usePullToRefresh";
 import { safeText } from "../lib/renderSafety";
@@ -85,10 +84,11 @@ const rootCauseClass = (cause: string | null) => {
   }
 };
 
-const clamp10 = (value: number) => Math.max(0, Math.min(10, value));
-const toScore = (value: number | null | undefined) => {
+const clamp = (value: number) => Math.max(0, Math.min(100, value));
+const toScorePercent = (value: number | null | undefined) => {
   if (value == null || !Number.isFinite(value)) return 0;
-  return value > 10 ? clamp10(value / 10) : clamp10(value);
+  if (value <= 10) return clamp(Math.round(value * 10));
+  return clamp(Math.round(value));
 };
 
 function SearchIcon() {
@@ -118,7 +118,7 @@ function HistorySkeletonCard() {
         <div className="skeleton h-5 w-16 rounded-full" />
         <div className="skeleton h-5 w-16 rounded-full" />
       </div>
-      <div className="skeleton mt-3 h-4 w-28 rounded" />
+      <div className="skeleton mt-3 h-4 w-24 rounded" />
       <div className="skeleton mt-4 h-3 w-20 rounded" />
     </article>
   );
@@ -126,7 +126,6 @@ function HistorySkeletonCard() {
 
 export const HistoryPage = () => {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const loaderRef = useRef<HTMLDivElement | null>(null);
   const sortMenuRef = useRef<HTMLDivElement | null>(null);
   const [search, setSearch] = useState("");
@@ -140,74 +139,30 @@ export const HistoryPage = () => {
   const [offset, setOffset] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
-  const [isTablet, setIsTablet] = useState(false);
-  const [mobileSortOpen, setMobileSortOpen] = useState(false);
 
-  const orderedItems = useMemo(() => {
-    if (!items.length) return items;
-    const ids = new Set(items.map((session) => session.id));
-    const childMap = new Map<string, HistorySession[]>();
-    const topLevel: HistorySession[] = [];
+  const fetchCount = async () => {
+    if (!supabase || !user?.id) return;
+    let q = supabase
+      .from("prompt_sessions")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id);
 
-    for (const session of items) {
-      if (session.parent_session_id && ids.has(session.parent_session_id)) {
-        const children = childMap.get(session.parent_session_id) ?? [];
-        children.push(session);
-        childMap.set(session.parent_session_id, children);
-      } else {
-        topLevel.push(session);
-      }
+    if (filter === "improve") q = q.eq("mode", "improve");
+    if (filter === "debug") q = q.eq("mode", "debug");
+    if (filter.startsWith("platform:")) q = q.eq("platform", filter.replace("platform:", ""));
+
+    const searchText = search.trim().replace(/,/g, " ").replace(/'/g, "''");
+    if (searchText) {
+      q = q.or(`title.ilike.%${searchText}%,original_prompt.ilike.%${searchText}%`);
     }
 
-    childMap.forEach((children) => {
-      children.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    });
-
-    const ordered: HistorySession[] = [];
-    for (const session of topLevel) {
-      ordered.push(session);
-      const children = childMap.get(session.id);
-      if (children?.length) {
-        ordered.push(...children);
-      }
+    const { count, error: countError } = await q;
+    if (countError) {
+      setError(countError.message);
+      return;
     }
-    return ordered;
-  }, [items]);
-
-  const chainMeta = useMemo(() => {
-    const rootGroups = new Map<string, HistorySession[]>();
-    const childRootIds = new Set<string>();
-    for (const session of items) {
-      const rootId = session.parent_session_id ?? session.id;
-      const group = rootGroups.get(rootId) ?? [];
-      group.push(session);
-      rootGroups.set(rootId, group);
-      if (session.parent_session_id) childRootIds.add(rootId);
-    }
-
-    const passById: Record<string, number> = {};
-    const chainMemberIds = new Set<string>();
-    rootGroups.forEach((group, rootId) => {
-      group.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-      group.forEach((session, index) => {
-        passById[session.id] = index + 1;
-      });
-      if (group.length > 1 || childRootIds.has(rootId)) {
-        group.forEach((session) => chainMemberIds.add(session.id));
-      }
-    });
-
-    return { passById, chainMemberIds };
-  }, [items]);
-
-  useEffect(() => {
-    const query = window.matchMedia("(min-width: 768px) and (max-width: 1023px)");
-    const update = () => setIsTablet(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
+    setTotalCount(count ?? 0);
+  };
 
   const buildQuery = (currentOffset: number) => {
     if (!supabase || !user?.id) return null;
@@ -220,9 +175,9 @@ export const HistoryPage = () => {
     if (filter === "debug") q = q.eq("mode", "debug");
     if (filter.startsWith("platform:")) q = q.eq("platform", filter.replace("platform:", ""));
 
-    const sanitized = search.trim().replace(/,/g, " ").replace(/'/g, "''");
-    if (sanitized) {
-      q = q.or(`title.ilike.%${sanitized}%,original_prompt.ilike.%${sanitized}%`);
+    const searchText = search.trim().replace(/,/g, " ").replace(/'/g, "''");
+    if (searchText) {
+      q = q.or(`title.ilike.%${searchText}%,original_prompt.ilike.%${searchText}%`);
     }
 
     if (sort === "newest") q = q.order("created_at", { ascending: false });
@@ -238,7 +193,6 @@ export const HistoryPage = () => {
       q = q
         .order("overall_score_after", { ascending: false, nullsFirst: false })
         .order("overall_score_before", { ascending: true, nullsFirst: false })
-        .order("score_clarity_after", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false });
     }
 
@@ -254,87 +208,83 @@ export const HistoryPage = () => {
 
     if (reset) {
       setLoadingInitial(true);
-      setOffset(0);
+      setLoadingMore(false);
       setHasMore(true);
+      setError(null);
     } else {
       setLoadingMore(true);
     }
-    setError(null);
 
     const currentOffset = reset ? 0 : offset;
-    const query = buildQuery(currentOffset);
-    if (!query) return;
-    const { data, error: fetchError } = await query;
-
-    if (fetchError) {
-      setError(fetchError.message);
+    const q = buildQuery(currentOffset);
+    if (!q) {
       setLoadingInitial(false);
       setLoadingMore(false);
       return;
     }
 
-    const page = (data ?? []) as PromptSession[];
-    const ids = page.map((s) => s.id);
-
-    let rootCauseMap: Record<string, string | null> = {};
-    if (ids.length) {
-      const { data: debugData } = await supabase
-        .from("debug_sessions")
-        .select("prompt_session_id,root_cause")
-        .in("prompt_session_id", ids);
-      rootCauseMap = (debugData ?? []).reduce<Record<string, string | null>>((acc, row) => {
-        const item = row as { prompt_session_id: string | null; root_cause: string | null };
-        if (item.prompt_session_id && !(item.prompt_session_id in acc)) {
-          acc[item.prompt_session_id] = item.root_cause;
-        }
-        return acc;
-      }, {});
+    const { data, error: queryError } = await q;
+    if (queryError) {
+      setError(queryError.message);
+      setLoadingInitial(false);
+      setLoadingMore(false);
+      return;
     }
 
-    const mapped = page.map((s) => ({
-      ...s,
-      debug_root_cause: rootCauseMap[s.id] ?? null,
+    const sessions = (data ?? []) as PromptSession[];
+    const debugIds = sessions
+      .filter((session) => (session.mode ?? "").toLowerCase().includes("debug"))
+      .map((session) => session.id);
+
+    const rootCauseBySessionId: Record<string, string | null> = {};
+    if (debugIds.length) {
+      const { data: debugRows } = await supabase
+        .from("debug_sessions")
+        .select("prompt_session_id, root_cause")
+        .eq("user_id", user.id)
+        .in("prompt_session_id", debugIds);
+      (debugRows ?? []).forEach((row: { prompt_session_id: string | null; root_cause: string | null }) => {
+        if (row.prompt_session_id) {
+          rootCauseBySessionId[row.prompt_session_id] = row.root_cause ?? null;
+        }
+      });
+    }
+
+    const merged: HistorySession[] = sessions.map((session) => ({
+      ...session,
+      debug_root_cause: rootCauseBySessionId[session.id] ?? null,
     }));
 
-    setItems((prev) => (reset ? mapped : [...prev, ...mapped]));
-    setOffset(currentOffset + mapped.length);
-    setHasMore(mapped.length === PAGE_SIZE);
+    setItems((prev) => {
+      const next = reset ? merged : [...prev, ...merged];
+      const byId = new Map<string, HistorySession>();
+      next.forEach((item) => byId.set(item.id, item));
+      return Array.from(byId.values());
+    });
+
+    setOffset(currentOffset + merged.length);
+    setHasMore(merged.length === PAGE_SIZE);
     setLoadingInitial(false);
     setLoadingMore(false);
   };
 
   useEffect(() => {
-    if (!supabase || !user?.id) return;
-    const sb = supabase;
-    let active = true;
-    const run = async () => {
-      const { count } = await sb
-        .from("prompt_sessions")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id);
-      if (active) setTotalCount(count ?? 0);
-    };
-    void run();
-    return () => {
-      active = false;
-    };
-  }, [user?.id]);
-
-  useEffect(() => {
+    setOffset(0);
+    setHasMore(true);
     void fetchSessions(true);
+    void fetchCount();
   }, [user?.id, filter, sort, search]);
 
   const { isRefreshing, pullDistance, bind } = usePullToRefresh(async () => {
-    await fetchSessions(true);
+    await Promise.all([fetchSessions(true), fetchCount()]);
   });
 
   useEffect(() => {
     const target = loaderRef.current;
-    if (!target) return;
-
+    if (!target || !hasMore || loadingInitial || loadingMore) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting) {
+        if (entries.some((entry) => entry.isIntersecting)) {
           void fetchSessions(false);
         }
       },
@@ -355,7 +305,7 @@ export const HistoryPage = () => {
   }, []);
 
   return (
-    <section className="space-y-5 pb-16" {...bind}>
+    <section className="space-y-4 pb-12 sm:space-y-5 sm:pb-16" {...bind}>
       {(isRefreshing || pullDistance > 0) ? (
         <div className="flex items-center justify-center">
           <span
@@ -364,9 +314,8 @@ export const HistoryPage = () => {
           />
         </div>
       ) : null}
-      <header
-        className="rounded-2xl border border-[#E5E5EA] bg-white/72 p-4 backdrop-blur-xl"
-      >
+
+      <header className="rounded-2xl border border-[#E5E5EA] bg-white/72 p-4 backdrop-blur-xl">
         <div className="flex flex-wrap items-baseline gap-2">
           <h1 className="text-2xl font-semibold text-[#1C1C1E]">History</h1>
           <span className="text-sm text-[#8E8E93]">{totalCount} sessions</span>
@@ -387,7 +336,7 @@ export const HistoryPage = () => {
               className="w-full rounded-2xl border border-[#D1D1D6] bg-white/85 py-3 pl-10 pr-3 text-sm text-[#1C1C1E] outline-none focus:border-[#3B82F6] focus:shadow-[0_0_0_3px_rgba(59,130,246,0.12)]"
             />
           </div>
-          <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1 md:flex-wrap md:overflow-visible">
+          <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1">
             {FILTERS.map((f) => (
               <button
                 key={f.id}
@@ -403,19 +352,12 @@ export const HistoryPage = () => {
                 {f.label}
               </button>
             ))}
-            <button
-              type="button"
-              onClick={() => setMobileSortOpen(true)}
-              className="ml-auto rounded-full border border-[#D1D1D6] bg-white/90 px-3 py-1.5 text-sm text-[#1C1C1E] lg:hidden"
-            >
-              Sort
-            </button>
           </div>
         </div>
 
         <div
           ref={sortMenuRef}
-          className="relative z-20 hidden rounded-2xl border border-[#E5E5EA] bg-white/72 p-3 backdrop-blur-xl lg:block lg:self-start"
+          className="relative z-20 rounded-2xl border border-[#E5E5EA] bg-white/72 p-3 backdrop-blur-xl lg:self-start"
         >
           <label className="mb-1 block text-xs font-medium text-[#8E8E93]">Sort</label>
           <div className="relative">
@@ -428,9 +370,7 @@ export const HistoryPage = () => {
               <ChevronDownIcon />
             </button>
             {sortOpen ? (
-              <div
-                className="absolute left-0 top-[calc(100%+6px)] z-30 w-full overflow-hidden rounded-xl border border-[#D1D1D6] bg-white/95 p-1 shadow-[0_12px_30px_rgba(28,28,30,0.14)] backdrop-blur-xl"
-              >
+              <div className="absolute left-0 top-[calc(100%+6px)] z-30 w-full overflow-hidden rounded-xl border border-[#D1D1D6] bg-white/95 p-1 shadow-[0_12px_30px_rgba(28,28,30,0.14)] backdrop-blur-xl">
                 {SORT_OPTIONS.map((option) => (
                   <button
                     key={option.id}
@@ -475,130 +415,20 @@ export const HistoryPage = () => {
             No sessions yet. Run an Improve or Debug session and it will appear here.
           </p>
         </div>
-      ) : isTablet ? (
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-3">
-            {orderedItems.map((session) => {
-              const titleBase = safeText(session.original_prompt) || safeText(session.title) || "Untitled session";
-              const title = titleBase.length > 60 ? `${titleBase.slice(0, 60)}...` : titleBase;
-              const mode = (session.mode ?? "").toLowerCase().includes("debug") ? "debug" : "improve";
-              const overallBefore = toScore(session.overall_score_before ?? session.clarity_score_before);
-              const overallAfter = toScore(session.overall_score_after ?? session.clarity_score_after);
-              const pass = chainMeta.passById[session.id];
-              const inChain = chainMeta.chainMemberIds.has(session.id);
-              const isChildPass = Boolean(session.parent_session_id);
-              return (
-                <button
-                  key={session.id}
-                  type="button"
-                  onClick={() => setSelectedSessionId(session.id)}
-                  className={[
-                    "w-full rounded-2xl border border-[#E5E5EA] bg-white/72 p-4 text-left transition duration-200",
-                    isChildPass ? "border-l-[3px] border-l-violet-200 pl-5" : "",
-                  ].join(" ")}
-                  style={{ backdropFilter: "blur(12px)" }}
-                >
-                  <h3 className="line-clamp-2 text-[15px] font-semibold text-[#1C1C1E]">{title}</h3>
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                        mode === "debug" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"
-                      }`}
-                    >
-                      {mode === "debug" ? "Debug" : "Improve"}
-                    </span>
-                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${platformClass(session.platform)}`}>
-                      {session.platform ?? "Other"}
-                    </span>
-                    {inChain ? (
-                      <span className="rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-semibold text-violet-700">
-                        Pass {pass ?? 1}
-                      </span>
-                    ) : null}
-                  </div>
-                  {mode === "improve" ? (
-                    <div className="mt-3 inline-flex items-center gap-1 rounded-full border border-[#D1D1D6] bg-white/90 px-2.5 py-1 text-xs font-semibold text-[#1C1C1E]">
-                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#CBD5E1] text-[10px]">
-                        {overallBefore.toFixed(1)}
-                      </span>
-                      <span className="text-emerald-500">→</span>
-                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-violet-300 text-[10px]">
-                        {overallAfter.toFixed(1)}
-                      </span>
-                    </div>
-                  ) : (
-                    <span className={`mt-3 inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${rootCauseClass(session.debug_root_cause)}`}>
-                      {session.debug_root_cause ?? "Root cause pending"}
-                    </span>
-                  )}
-                  <p className="mt-3 text-xs text-[#8E8E93]">{timeAgo(session.created_at)}</p>
-                </button>
-              );
-            })}
-          </div>
-          <div className="rounded-2xl border border-[#E5E5EA] bg-white/75 p-5 backdrop-blur-xl">
-            {selectedSessionId ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setSelectedSessionId(null)}
-                  className="mb-4 rounded-full border border-[#D1D1D6] bg-white px-3 py-1 text-sm text-[#1C1C1E]"
-                >
-                  Back to list
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate(`/sessions/${selectedSessionId}`)}
-                  className="mb-4 ml-2 rounded-full border border-[#D1D1D6] bg-white px-3 py-1 text-sm text-[#1C1C1E]"
-                >
-                  Open full page
-                </button>
-                {(() => {
-                  const s = orderedItems.find((item) => item.id === selectedSessionId);
-                  if (!s) return <p className="text-sm text-[#636366]">Session unavailable.</p>;
-                  return (
-                    <div className="space-y-4">
-                      <h3 className="text-lg font-semibold text-[#1C1C1E]">{s.title}</h3>
-                      <p className="text-sm text-[#636366]">{s.platform ?? "Unknown platform"} — {s.mode ?? "general"} mode</p>
-                      <div>
-                        <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-[#8E8E93]">Original Prompt</p>
-                        <p className="whitespace-pre-wrap text-sm text-[#1C1C1E]">{s.original_prompt ?? "Not available."}</p>
-                      </div>
-                      <div>
-                        <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-[#8E8E93]">Improved Prompt</p>
-                        <p className="whitespace-pre-wrap text-sm text-[#1C1C1E]">{s.improved_prompt ?? "Not available."}</p>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </>
-            ) : (
-              <div className="flex min-h-[280px] items-center justify-center rounded-2xl border border-dashed border-[#D1D1D6] text-sm text-[#636366]">
-                Select a session to view details
-              </div>
-            )}
-          </div>
-        </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {orderedItems.map((session) => {
+          {items.map((session) => {
             const titleBase = safeText(session.original_prompt) || safeText(session.title) || "Untitled session";
             const title = titleBase.length > 60 ? `${titleBase.slice(0, 60)}...` : titleBase;
             const mode = (session.mode ?? "").toLowerCase().includes("debug") ? "debug" : "improve";
-            const overallBefore = toScore(session.overall_score_before ?? session.clarity_score_before);
-            const overallAfter = toScore(session.overall_score_after ?? session.clarity_score_after);
-            const pass = chainMeta.passById[session.id];
-            const inChain = chainMeta.chainMemberIds.has(session.id);
-            const isChildPass = Boolean(session.parent_session_id);
+            const before = toScorePercent(session.overall_score_before ?? session.clarity_score_before);
+            const after = toScorePercent(session.overall_score_after ?? session.clarity_score_after);
 
             return (
               <Link
                 key={session.id}
                 to={`/sessions/${session.id}`}
-                className={[
-                  "group rounded-2xl border border-[#E5E5EA] bg-white/72 p-4 no-underline transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_24px_rgba(28,28,30,0.10)]",
-                  isChildPass ? "border-l-[3px] border-l-violet-200 pl-5" : "",
-                ].join(" ")}
+                className="group rounded-2xl border border-[#E5E5EA] bg-white/72 p-4 no-underline transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_24px_rgba(28,28,30,0.10)]"
                 style={{ backdropFilter: "blur(12px)" }}
               >
                 <h3 className="line-clamp-2 text-[15px] font-semibold text-[#1C1C1E]">{title}</h3>
@@ -614,22 +444,13 @@ export const HistoryPage = () => {
                   <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${platformClass(session.platform)}`}>
                     {session.platform ?? "Other"}
                   </span>
-                  {inChain ? (
-                    <span className="rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-semibold text-violet-700">
-                      Pass {pass ?? 1}
-                    </span>
-                  ) : null}
                 </div>
 
                 {mode === "improve" ? (
                   <div className="mt-3 inline-flex items-center gap-1 rounded-full border border-[#D1D1D6] bg-white/90 px-2.5 py-1 text-xs font-semibold text-[#1C1C1E]">
-                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#CBD5E1] text-[10px]">
-                      {overallBefore.toFixed(1)}
-                    </span>
-                    <span className="text-emerald-500">→</span>
-                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-violet-300 text-[10px]">
-                      {overallAfter.toFixed(1)}
-                    </span>
+                    <span>{before}</span>
+                    <span className="text-emerald-500">↑</span>
+                    <span>{after}</span>
                   </div>
                 ) : (
                   <span className={`mt-3 inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${rootCauseClass(session.debug_root_cause)}`}>
@@ -653,24 +474,6 @@ export const HistoryPage = () => {
           <span className="h-5 w-5 animate-spin rounded-full border-2 border-[#3B82F6]/30 border-t-[#3B82F6]" />
         </div>
       ) : null}
-      <BottomSheet open={mobileSortOpen} onClose={() => setMobileSortOpen(false)}>
-        <h3 className="px-1 pb-2 text-[16px] font-semibold text-[#1C1C1E]">Sort Sessions</h3>
-        <div className="space-y-1 pb-2">
-          {SORT_OPTIONS.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => {
-                setSort(option.id);
-                setMobileSortOpen(false);
-              }}
-              className={`block min-h-[44px] w-full rounded-2xl px-4 py-3 text-left text-sm ${sort === option.id ? "bg-blue-50 text-[#3B82F6]" : "text-[#1C1C1E]"}`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </BottomSheet>
     </section>
   );
 };
