@@ -136,8 +136,57 @@ function Navbar() {
 
 // ─── Hero ─────────────────────────────────────────────────────────────────────
 
+const PREVIEW_DEVICE_MODES = [
+  {
+    label: "Mobile",
+    maxW: "max-w-[260px]",
+    frame: "rounded-[2.25rem] border-[3px] border-white/15 p-2 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]",
+    notch: true,
+  },
+  {
+    label: "Tablet",
+    maxW: "max-w-[440px]",
+    frame: "rounded-[1.75rem] border-[3px] border-white/15 p-2.5 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]",
+    notch: false,
+  },
+  {
+    label: "Desktop",
+    maxW: "max-w-full",
+    frame: "rounded-xl border border-white/12 p-1.5 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)]",
+    notch: false,
+  },
+] as const;
+
+/** Landing hero device carousel — mobile / tablet / desktop screenshots */
+const PREVIEW_IMAGES = [
+  "/preview-improve-mobile.png",
+  "/preview-improve-tablet.png",
+  "/preview-improve-desktop.png",
+] as const;
+
+const PREVIEW_ALT: readonly string[] = [
+  "Prompt Fix — Improve My Prompt on mobile",
+  "Prompt Fix — Improve My Prompt on tablet",
+  "Prompt Fix — Improve My Prompt on desktop",
+];
+
 function Hero() {
-  const [heroSrc, setHeroSrc] = useState("/hero-improve.png");
+  const [previewIndex, setPreviewIndex] = useState(0);
+  /** If the device screenshot fails to load, fall back once to the generic hero asset */
+  const [previewSrcFallback, setPreviewSrcFallback] = useState<string | null>(null);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setPreviewIndex((i) => (i + 1) % PREVIEW_DEVICE_MODES.length);
+    }, 4500);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    setPreviewSrcFallback(null);
+  }, [previewIndex]);
+
+  const previewImgSrc = previewSrcFallback ?? PREVIEW_IMAGES[previewIndex];
 
   return (
     <section className="relative overflow-hidden px-6 pb-16 pt-28" style={{ background: "#0f172a" }}>
@@ -220,19 +269,61 @@ function Hero() {
             } as CSSProperties
           }
         >
-          <img
-            src={heroSrc}
-            onError={() =>
-              setHeroSrc(
-                "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?auto=format&fit=crop&w=1200&q=80",
-              )
-            }
-            alt="Prompt Fix Improve screen preview"
-            className="h-auto w-full rounded-2xl border border-white/10 object-cover"
-            draggable="false"
-          />
+          <div className="mb-3 flex items-center justify-center gap-2">
+            {PREVIEW_DEVICE_MODES.map((mode, i) => (
+              <button
+                key={mode.label}
+                type="button"
+                onClick={() => setPreviewIndex(i)}
+                className={[
+                  "rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition",
+                  previewIndex === i
+                    ? "bg-white/15 text-white ring-1 ring-white/25"
+                    : "text-[#64748B] hover:bg-white/5 hover:text-[#94A3B8]",
+                ].join(" ")}
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
+
+          <div
+            className={[
+              "mx-auto w-full transition-[max-width] duration-700 ease-in-out",
+              PREVIEW_DEVICE_MODES[previewIndex].maxW,
+            ].join(" ")}
+          >
+            <div
+              className={[
+                "overflow-hidden bg-[#0f172a] transition-[border-radius,padding] duration-700 ease-in-out",
+                PREVIEW_DEVICE_MODES[previewIndex].frame,
+              ].join(" ")}
+            >
+              {PREVIEW_DEVICE_MODES[previewIndex].notch ? (
+                <div className="mx-auto mb-2 h-5 w-[38%] max-w-[120px] rounded-full bg-black/40" aria-hidden />
+              ) : null}
+              <img
+                key={previewImgSrc}
+                src={previewImgSrc}
+                onError={() => {
+                  if (!previewSrcFallback) setPreviewSrcFallback("/hero-improve.png");
+                  else if (previewSrcFallback === "/hero-improve.png") {
+                    setPreviewSrcFallback(
+                      "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?auto=format&fit=crop&w=1200&q=80",
+                    );
+                  }
+                }}
+                alt={PREVIEW_ALT[previewIndex] ?? "Prompt Fix workspace preview"}
+                className={[
+                  "h-auto w-full border border-white/10 object-cover object-top transition-[border-radius] duration-700",
+                  previewIndex === 0 ? "rounded-2xl" : previewIndex === 1 ? "rounded-xl" : "rounded-lg",
+                ].join(" ")}
+                draggable="false"
+              />
+            </div>
+          </div>
           <p className="px-2 pb-1 pt-3 text-center text-xs font-medium text-[#94A3B8]">
-            Real Prompt Fix workspace preview
+            Cycles through mobile, tablet, and desktop — tap a label to jump
           </p>
         </div>
       </div>

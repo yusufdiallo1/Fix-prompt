@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { useTheme } from "../hooks/useTheme";
+import { useTheme, type ThemePreference } from "../hooks/useTheme";
 import { useAppFont } from "../hooks/useAppFont";
 import { supabase } from "../lib/supabase";
 import { isSpeechSupported } from "../lib/stt";
@@ -20,8 +20,8 @@ const STT_LANGUAGES = [
 export const SettingsPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { theme, toggleTheme } = useTheme();
-  const { fontId, setFontId, options: fontOptions } = useAppFont();
+  const { themePreference, setThemePreference, resolvedTheme } = useTheme();
+  const { fontId, setFontId, options: fontOptions, fontOption } = useAppFont();
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState<null | "password" | "signout" | "delete">(null);
@@ -167,44 +167,55 @@ export const SettingsPage = () => {
         <p className="mt-1 text-sm text-[#636366]">{user?.email ?? "No email available"}</p>
       </div>
 
-      <div className="rounded-2xl border border-[#E5E5EA] bg-white/75 p-5 backdrop-blur-xl">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-[#1C1C1E]">Theme</p>
-            <p className="text-sm text-[#8E8E93]">Switch between light and dark mode.</p>
-          </div>
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="rounded-full border border-[#D1D1D6] bg-white/90 px-4 py-2 text-sm font-medium text-[#1C1C1E]"
+      <div className="rounded-2xl border border-[#E5E5EA] bg-white/75 p-5 backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
+        <p className="text-sm font-semibold text-[#1C1C1E] dark:text-slate-100">Theme</p>
+        <p className="mt-1 text-sm text-[#8E8E93] dark:text-slate-400">
+          Light, dark, or match your device.
+        </p>
+        <div className="relative mt-4 max-w-md">
+          <label htmlFor="theme-preference" className="sr-only">
+            Theme
+          </label>
+          <select
+            id="theme-preference"
+            value={themePreference}
+            onChange={(event) => setThemePreference(event.target.value as ThemePreference)}
+            className="liquid-glass-select"
           >
-            {theme === "dark" ? "Use Light" : "Use Dark"}
-          </button>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+            <option value="system">System</option>
+          </select>
         </div>
+        {themePreference === "system" ? (
+          <p className="mt-2 text-xs text-[#8E8E93] dark:text-slate-500">
+            Currently using {resolvedTheme === "dark" ? "dark" : "light"} (from your device).
+          </p>
+        ) : null}
       </div>
 
-      <div className="rounded-2xl border border-[#E5E5EA] bg-white/75 p-5 backdrop-blur-xl">
-        <p className="text-sm font-semibold text-[#1C1C1E]">Text font</p>
-        <p className="mt-1 text-sm text-[#8E8E93]">
+      <div className="rounded-2xl border border-[#E5E5EA] bg-white/75 p-5 backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
+        <p className="text-sm font-semibold text-[#1C1C1E] dark:text-slate-100">Text font</p>
+        <p className="mt-1 text-sm text-[#8E8E93] dark:text-slate-400">
           Choose how typed text looks in inputs and text areas across PromptFix.
         </p>
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {fontOptions.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setFontId(f.id)}
-              className={[
-                "min-h-[44px] rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition",
-                fontId === f.id
-                  ? "border-[#3B82F6] bg-blue-50 text-[#1D4ED8]"
-                  : "border-[#D1D1D6] bg-white/90 text-[#1C1C1E] hover:bg-[#F8F8FA]",
-              ].join(" ")}
-              style={{ fontFamily: f.cssFamily }}
-            >
-              {f.label}
-            </button>
-          ))}
+        <div className="relative mt-4 max-w-md">
+          <label htmlFor="app-font" className="sr-only">
+            Text font
+          </label>
+          <select
+            id="app-font"
+            value={fontId}
+            onChange={(event) => setFontId(event.target.value)}
+            className="liquid-glass-select"
+            style={{ fontFamily: fontOption.cssFamily }}
+          >
+            {fontOptions.map((f) => (
+              <option key={f.id} value={f.id} style={{ fontFamily: f.cssFamily }}>
+                {f.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 

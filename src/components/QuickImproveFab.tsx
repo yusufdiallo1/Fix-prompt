@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { improvePrompt, type ImprovePromptResponse } from "../lib/groq";
 import { useAuth } from "../hooks/useAuth";
@@ -77,7 +77,8 @@ export const QuickImproveFab = () => {
   }, [stt.sttState]);
 
   const shouldHideForRoute = location.pathname.startsWith("/improve") || location.pathname.startsWith("/debug");
-  const hidden = shouldHideForRoute || inputFocused;
+  /** Hide FAB when another page input is focused — never while the modal is open or its textarea would unmount the UI. */
+  const hidden = shouldHideForRoute || (inputFocused && !open);
 
   useEffect(() => {
     const onFocusIn = (event: FocusEvent) => {
@@ -102,36 +103,6 @@ export const QuickImproveFab = () => {
     };
   }, []);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-        return;
-      }
-      if (event.key !== "Enter") return;
-      if (!(event.metaKey || event.ctrlKey)) return;
-      event.preventDefault();
-      void runImprove();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
-
-  useEffect(() => {
-    if (!copied) return;
-    const id = window.setTimeout(() => setCopied(false), 1600);
-    return () => window.clearTimeout(id);
-  }, [copied]);
-
-  const shownText = useMemo(() => {
-    if (!result) return "";
-    if (activeIndex === 0) return result.improved_prompt;
-    if (activeIndex === 1) return result.alternative_one;
-    if (activeIndex === 2) return result.alternative_two;
-    return result.alternative_three;
-  }, [result, activeIndex]);
-
   const resetModal = () => {
     setOpen(false);
     setLoading(false);
@@ -140,7 +111,7 @@ export const QuickImproveFab = () => {
     setActiveIndex(0);
   };
 
-  const runImprove = async () => {
+  const runImprove = useCallback(async () => {
     if (!prompt.trim() || !user?.id || loading) return;
     setLoading(true);
     setError(null);
@@ -160,7 +131,46 @@ export const QuickImproveFab = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [prompt, platform, user?.id, loading]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        return;
+      }
+      if (event.key !== "Enter") return;
+      if (!(event.metaKey || event.ctrlKey)) return;
+      event.preventDefault();
+      void runImprove();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, runImprove]);
+
+  useEffect(() => {
+    if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!copied) return;
+    const id = window.setTimeout(() => setCopied(false), 1600);
+    return () => window.clearTimeout(id);
+  }, [copied]);
+
+  const shownText = useMemo(() => {
+    if (!result) return "";
+    if (activeIndex === 0) return result.improved_prompt;
+    if (activeIndex === 1) return result.alternative_one;
+    if (activeIndex === 2) return result.alternative_two;
+    return result.alternative_three;
+  }, [result, activeIndex]);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -189,11 +199,11 @@ export const QuickImproveFab = () => {
 
   return (
     <>
-      <div className="quick-improve-fab-wrap fixed bottom-24 right-5 z-[96] md:right-8 md:max-lg:bottom-24 lg:bottom-8">
+      <div className="quick-improve-fab-wrap fixed bottom-24 right-5 z-[125] md:right-8 md:max-lg:bottom-24 lg:bottom-8">
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="quick-improve-fab group relative h-14 w-14 rounded-full text-white shadow-[0_14px_34px_rgba(99,102,241,0.35)]"
+          className="quick-improve-fab group relative h-14 w-14 rounded-full text-white shadow-[0_14px_34px_rgba(99,102,241,0.35)] touch-manipulation"
           style={{ background: "linear-gradient(135deg,#3B82F6 0%,#A78BFA 100%)" }}
           aria-label="Quick Improve"
         >
@@ -208,10 +218,15 @@ export const QuickImproveFab = () => {
       </div>
 
       {open ? (
-        <div className="fixed inset-0 z-[121]">
-          <button type="button" aria-label="Close quick improve" className="absolute inset-0 bg-black/40" onClick={resetModal} />
+        <div className="fixed inset-0 z-[130]">
+          <button
+            type="button"
+            aria-label="Close quick improve"
+            className="absolute inset-0 z-0 bg-black/40 touch-none"
+            onClick={resetModal}
+          />
 
-          <section className="absolute inset-x-0 bottom-0 mx-auto h-[85vh] rounded-t-[28px] border border-white/70 bg-white/90 px-4 pb-[calc(env(safe-area-inset-bottom,0px)+14px)] pt-3 shadow-[0_-18px_40px_rgba(28,28,30,0.22)] backdrop-blur-2xl md:inset-auto md:left-1/2 md:top-1/2 md:h-[600px] md:max-h-[85vh] md:w-[min(560px,92vw)] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-[28px] md:px-5 md:pb-5 md:pt-4">
+          <section className="absolute inset-x-0 bottom-0 z-[1] mx-auto flex h-[min(85dvh,720px)] max-h-[85dvh] min-h-0 flex-col overflow-hidden rounded-t-[28px] border border-white/70 bg-white/90 px-4 pb-[calc(env(safe-area-inset-bottom,0px)+14px)] pt-3 shadow-[0_-18px_40px_rgba(28,28,30,0.22)] backdrop-blur-2xl md:inset-auto md:left-1/2 md:top-1/2 md:h-[min(600px,85dvh)] md:max-h-[85vh] md:w-[min(560px,92vw)] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-[28px] md:px-5 md:pb-5 md:pt-4">
             <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[#C7C7CC] md:hidden" />
 
             <div className="mb-3 flex items-center justify-between">
@@ -229,8 +244,8 @@ export const QuickImproveFab = () => {
             </div>
 
             {!result ? (
-              <form onSubmit={handleSubmit} className="flex h-[calc(100%-42px)] flex-col gap-3">
-                <div className="relative flex-1 rounded-2xl border border-white/10 bg-[rgba(30,30,34,0.92)] p-3">
+              <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain touch-pan-y">
+                <div className="relative min-h-[200px] flex-1 rounded-2xl border border-white/10 bg-[rgba(30,30,34,0.92)] p-3">
                   {stt.isSupported && (
                     <ListeningBanner
                       ref={quickListeningBannerRef}
@@ -322,7 +337,7 @@ export const QuickImproveFab = () => {
                 </p>
               </form>
             ) : (
-              <div className="quick-improve-result-enter flex h-[calc(100%-42px)] flex-col gap-3">
+              <div className="quick-improve-result-enter flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain touch-pan-y">
                 <div className="flex-1 overflow-hidden rounded-2xl border border-white/10 bg-[rgba(30,30,34,0.92)] p-3">
                   <div className="h-full overflow-auto whitespace-pre-wrap rounded-xl p-2 text-sm leading-6 text-slate-100">
                     {shownText}
